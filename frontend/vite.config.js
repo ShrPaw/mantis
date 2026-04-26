@@ -5,11 +5,15 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    host: '0.0.0.0',
     proxy: {
       '/ws': {
         target: 'ws://localhost:8000',
         ws: true,
       },
     },
+  },
+  resolve: {
+    extensions: ['.ts', '.tsx', '.js', '.jsx'],
   },
 })
