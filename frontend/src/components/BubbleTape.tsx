@@ -8,12 +8,38 @@ export function BubbleTape() {
   return (
     <div style={styles.panel}>
       <div style={styles.title}>
-        <span>LARGE TRADES</span>
+        <span>LARGE TRADES (≥0.5 BTC)</span>
         <span style={styles.count}>{largeTrades.length}</span>
       </div>
+
+      {/* Size legend */}
+      <div style={styles.legend}>
+        <span style={styles.legendItem}>
+          <span style={{ ...styles.legendBubble, width: 10, height: 10 }} />
+          <span>0.5</span>
+        </span>
+        <span style={styles.legendItem}>
+          <span style={{ ...styles.legendBubble, width: 16, height: 16 }} />
+          <span>2.0</span>
+        </span>
+        <span style={styles.legendItem}>
+          <span style={{ ...styles.legendBubble, width: 22, height: 22 }} />
+          <span>5.0+</span>
+        </span>
+        <span style={styles.legendSep}>|</span>
+        <span style={styles.legendItem}>
+          <span style={{ ...styles.legendDot, background: '#26a69a' }} />
+          <span>Buy</span>
+        </span>
+        <span style={styles.legendItem}>
+          <span style={{ ...styles.legendDot, background: '#ef5350' }} />
+          <span>Sell</span>
+        </span>
+      </div>
+
       <div style={styles.list}>
         {largeTrades.length === 0 && (
-          <div style={styles.empty}>Waiting for large trades (≥0.5 BTC)...</div>
+          <div style={styles.empty}>Waiting for large trades...</div>
         )}
         {largeTrades.map((t, i) => (
           <BubbleRow key={`${t.timestamp}-${i}`} trade={t} />
@@ -25,8 +51,10 @@ export function BubbleTape() {
 
 function BubbleRow({ trade }: { trade: any }) {
   const isBuy = trade.side === 'buy';
-  const size = Math.min(Math.max(trade.qty / 5, 0.35), 1);
-  const bubbleSize = size * 36;
+  const color = isBuy ? '#26a69a' : '#ef5350';
+  // Scale: 0.5 BTC → 0.3, 5+ BTC → 1.0
+  const size = Math.min(Math.max((trade.qty - 0.5) / 4.5, 0.25), 1);
+  const bubbleSize = 14 + size * 26;
 
   return (
     <div style={styles.row}>
@@ -34,32 +62,24 @@ function BubbleRow({ trade }: { trade: any }) {
         ...styles.bubble,
         width: bubbleSize,
         height: bubbleSize,
-        background: isBuy ? 'rgba(0,230,118,0.12)' : 'rgba(255,23,68,0.12)',
-        border: `2px solid ${isBuy ? '#00e676' : '#ff1744'}`,
-        boxShadow: `0 0 8px ${isBuy ? 'rgba(0,230,118,0.2)' : 'rgba(255,23,68,0.2)'}`,
+        background: `${color}18`,
+        border: `2px solid ${color}`,
+        boxShadow: `0 0 ${size * 12}px ${color}30`,
       }}>
-        <span style={{
-          color: isBuy ? '#00e676' : '#ff1744',
-          fontSize: 8,
-          fontWeight: 700,
-        }}>
+        <span style={{ color, fontSize: size > 0.5 ? 9 : 7, fontWeight: 700 }}>
           {trade.qty?.toFixed(2)}
         </span>
       </div>
       <div style={styles.info}>
         <div style={styles.priceRow}>
-          <span style={{
-            color: isBuy ? '#00e676' : '#ff1744',
-            fontWeight: 600,
-            fontSize: 10,
-          }}>
+          <span style={{ color, fontWeight: 700, fontSize: 10 }}>
             {isBuy ? '▲ BUY' : '▼ SELL'}
           </span>
           <span style={styles.price}>{formatPrice(trade.price)}</span>
         </div>
         <div style={styles.meta}>
-          <span>{formatVol(trade.qty)} BTC</span>
-          <span>{formatUSD(trade.value_usd)}</span>
+          <span style={{ color: '#888' }}>{formatVol(trade.qty)} BTC</span>
+          <span style={{ color: '#aaa', fontWeight: 500 }}>{formatUSD(trade.value_usd)}</span>
           <span style={{ color: '#444' }}>{timeAgo(trade.timestamp)}</span>
         </div>
       </div>
@@ -75,10 +95,10 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
   },
   title: {
-    fontSize: 8,
-    color: '#444',
-    letterSpacing: 2,
-    marginBottom: 6,
+    fontSize: 9,
+    color: '#555',
+    letterSpacing: 1,
+    marginBottom: 4,
     borderBottom: '1px solid #1a1a2e',
     paddingBottom: 3,
     display: 'flex',
@@ -88,20 +108,53 @@ const styles: Record<string, React.CSSProperties> = {
   },
   count: {
     fontSize: 8,
-    color: '#555',
+    color: '#888',
     background: '#1a1a2e',
-    padding: '1px 5px',
-    borderRadius: 2,
+    padding: '1px 6px',
+    borderRadius: 3,
+    fontWeight: 600,
+  },
+  legend: {
+    display: 'flex',
+    gap: 8,
+    alignItems: 'center',
+    padding: '3px 0 5px',
+    borderBottom: '1px solid #111118',
+    marginBottom: 4,
+    flexShrink: 0,
+  },
+  legendItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 3,
+    fontSize: 7,
+    color: '#555',
+  },
+  legendBubble: {
+    borderRadius: '50%',
+    border: '1px solid #555',
+    display: 'inline-block',
+    flexShrink: 0,
+  },
+  legendDot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    display: 'inline-block',
+  },
+  legendSep: {
+    color: '#222',
+    fontSize: 10,
   },
   list: {
     flex: 1,
     overflow: 'auto',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: 3,
+    gap: 2,
   },
   empty: {
-    color: '#333',
+    color: '#444',
     fontSize: 10,
     textAlign: 'center' as const,
     padding: 20,
@@ -110,7 +163,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    padding: '3px 0',
+    padding: '4px 0',
     borderBottom: '1px solid #111118',
   },
   bubble: {
@@ -138,9 +191,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   meta: {
     display: 'flex',
-    gap: 6,
+    gap: 8,
     fontSize: 8,
-    color: '#555',
-    marginTop: 1,
+    marginTop: 2,
   },
 };

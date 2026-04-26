@@ -8,7 +8,7 @@ interface Props {
 }
 
 export function StatusBar({ connected, flow }: Props) {
-  const deltaColor = (v: number) => v >= 0 ? '#00e676' : '#ff1744';
+  const deltaColor = (v: number) => v >= 0 ? '#26a69a' : '#ef5350';
 
   return (
     <div style={styles.bar}>
@@ -16,10 +16,10 @@ export function StatusBar({ connected, flow }: Props) {
       <div style={styles.statusChip}>
         <span style={{
           ...styles.dot,
-          background: connected ? '#00e676' : '#ff1744',
-          boxShadow: connected ? '0 0 6px #00e676' : '0 0 6px #ff1744',
+          background: connected ? '#26a69a' : '#ef5350',
+          boxShadow: connected ? '0 0 6px #26a69a' : '0 0 6px #ef5350',
         }} />
-        <span style={{ color: connected ? '#00e676' : '#ff1744', fontSize: 9, fontWeight: 600 }}>
+        <span style={{ color: connected ? '#26a69a' : '#ef5350', fontSize: 9, fontWeight: 600 }}>
           {connected ? 'LIVE' : 'OFFLINE'}
         </span>
       </div>
@@ -33,8 +33,8 @@ export function StatusBar({ connected, flow }: Props) {
 
       {/* Mini metrics */}
       <Metric label="VWAP" value={formatPrice(flow.vwap)} color="#f0b90b" />
-      <Metric label="H" value={formatPrice(flow.session_high)} color="#00e676" />
-      <Metric label="L" value={formatPrice(flow.session_low)} color="#ff1744" />
+      <Metric label="H" value={formatPrice(flow.session_high)} color="#26a69a" />
+      <Metric label="L" value={formatPrice(flow.session_low)} color="#ef5350" />
 
       <div style={styles.sep} />
 
@@ -72,7 +72,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 5,
     padding: '2px 8px',
     borderRadius: 3,
-    background: 'rgba(0,230,118,0.06)',
+    background: 'rgba(38, 166, 154, 0.06)',
   },
   dot: {
     width: 6,
@@ -89,7 +89,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#f0b90b',
     fontWeight: 700,
     fontSize: 14,
-    fontVariantNumeric: 'tabular-nums',
+    fontVariantNumeric: 'tabular-nums' as const,
   },
   metric: {
     display: 'flex',
@@ -105,6 +105,6 @@ const styles: Record<string, React.CSSProperties> = {
   metricValue: {
     fontWeight: 600,
     fontSize: 10,
-    fontVariantNumeric: 'tabular-nums',
+    fontVariantNumeric: 'tabular-nums' as const,
   },
 };

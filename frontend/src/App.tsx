@@ -131,7 +131,7 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: 0,
   },
   leftCol: {
-    width: 220,
+    width: 230,
     flexShrink: 0,
     background: '#0d0d14',
     borderRight: '1px solid #1a1a2e',
@@ -149,7 +149,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   chartWrap: {
     flex: 1,
-    minHeight: 0,
+    minHeight: 200,
     position: 'relative',
   },
   footprintWrap: {
@@ -158,13 +158,13 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: '1px solid #1a1a2e',
   },
   tapeWrap: {
-    height: 140,
+    height: 160,
     flexShrink: 0,
     borderTop: '1px solid #1a1a2e',
     background: '#0d0d14',
   },
   rightCol: {
-    width: 280,
+    width: 300,
     flexShrink: 0,
     background: '#0d0d14',
     borderLeft: '1px solid #1a1a2e',
@@ -179,13 +179,13 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
   },
   bubbleWrap: {
-    height: 260,
+    height: 280,
     flexShrink: 0,
     borderTop: '1px solid #1a1a2e',
     overflow: 'auto',
   },
   farRightCol: {
-    width: 200,
+    width: 220,
     flexShrink: 0,
     background: '#0d0d14',
     display: 'flex',

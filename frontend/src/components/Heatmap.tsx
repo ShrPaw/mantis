@@ -27,7 +27,7 @@ export function Heatmap() {
     const { bids = [], asks = [], mid = 0 } = heatmap;
 
     if (!bids.length && !asks.length) {
-      ctx.fillStyle = '#333';
+      ctx.fillStyle = '#444';
       ctx.font = '11px monospace';
       ctx.textAlign = 'center';
       ctx.fillText('Waiting for order book...', W / 2, H / 2);
@@ -37,33 +37,83 @@ export function Heatmap() {
 
     const allLevels = [...bids, ...asks];
     const maxQty = Math.max(...allLevels.map(l => l.qty), 0.001);
-    const rowH = Math.min(Math.floor((H - 30) / (allLevels.length + 2)), 20);
-    const startY = 22;
-    const priceW = 65;
+    const rowH = Math.min(Math.floor((H - 50) / (allLevels.length + 2)), 22);
+    const startY = 30;
+    const priceW = 70;
+    const qtyW = 50;
 
-    // Title
-    ctx.fillStyle = '#444';
-    ctx.font = '8px monospace';
-    ctx.fillText('ORDER BOOK', 6, 10);
+    // Title + legend
+    ctx.fillStyle = '#555';
+    ctx.font = 'bold 9px monospace';
+    ctx.fillText('ORDER BOOK', 6, 12);
+
+    // Legend row
+    ctx.font = '7px monospace';
+    ctx.fillStyle = '#26a69a';
+    ctx.fillText('● BIDS', 6, 24);
+    ctx.fillStyle = '#ef5350';
+    ctx.fillText('● ASKS', 55, 24);
+    ctx.fillStyle = '#555';
+    ctx.fillText(`depth: ${bids.length}×${asks.length}`, 105, 24);
 
     // Wall indicator
     const wallThreshold = maxQty * 0.4;
-    const hasBidsWall = bids.some(b => b.qty > wallThreshold);
-    const hasAsksWall = asks.some(a => a.qty > wallThreshold);
-
-    if (hasBidsWall || hasAsksWall) {
+    const hasWall = bids.some(b => b.qty > wallThreshold) || asks.some(a => a.qty > wallThreshold);
+    if (hasWall) {
       ctx.fillStyle = '#f0b90b';
-      ctx.font = '8px monospace';
+      ctx.font = 'bold 8px monospace';
       ctx.textAlign = 'right';
-      ctx.fillText('◆ WALL', W - 6, 10);
+      ctx.fillText('◆ WALL DETECTED', W - 6, 12);
       ctx.textAlign = 'left';
     }
 
+    // Mid price separator
+    const midY = startY + bids.length * rowH + 4;
+
+    // Draw bids (green, top section)
+    bids.forEach((bid, i) => {
+      const y = startY + i * rowH;
+      const barMaxW = W - priceW - qtyW - 8;
+      const w = (bid.qty / maxQty) * barMaxW;
+      const isWall = bid.qty > wallThreshold;
+      const fillAlpha = isWall ? 0.35 : 0.15;
+
+      // Bar
+      ctx.fillStyle = `rgba(38, 166, 154, ${fillAlpha})`;
+      ctx.fillRect(priceW, y, w, rowH - 2);
+
+      // Wall glow
+      if (isWall) {
+        ctx.shadowColor = '#26a69a';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = 'rgba(38, 166, 154, 0.5)';
+        ctx.fillRect(priceW, y, w, rowH - 2);
+        ctx.shadowBlur = 0;
+
+        // Wall border
+        ctx.strokeStyle = '#26a69a80';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(priceW, y, w, rowH - 2);
+      }
+
+      // Price label
+      ctx.fillStyle = isWall ? '#26a69a' : '#26a69a90';
+      ctx.font = `${isWall ? 'bold ' : ''}10px monospace`;
+      ctx.textAlign = 'right';
+      ctx.fillText(formatPrice(bid.price), priceW - 6, y + rowH - 5);
+      ctx.textAlign = 'left';
+
+      // Quantity label (right of bar)
+      ctx.fillStyle = isWall ? '#26a69a' : '#26a69a60';
+      ctx.font = `${isWall ? 'bold ' : ''}8px monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillText(formatSize(bid.qty), priceW + w + 4, y + rowH - 5);
+    });
+
     // Mid price line
-    const midY = startY + bids.length * rowH + 2;
-    ctx.strokeStyle = '#f0b90b50';
+    ctx.strokeStyle = '#f0b90b';
     ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
+    ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(0, midY);
     ctx.lineTo(W, midY);
@@ -72,79 +122,57 @@ export function Heatmap() {
 
     // Mid price label
     ctx.fillStyle = '#f0b90b';
-    ctx.font = 'bold 10px monospace';
+    ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(`$${formatPrice(mid)}`, W / 2, midY - 4);
+    ctx.fillText(`$${formatPrice(mid)}`, W / 2, midY - 5);
     ctx.textAlign = 'left';
 
     // Spread
     if (bids.length > 0 && asks.length > 0) {
-      const spread = asks[asks.length - 1].price - bids[0].price;
-      ctx.fillStyle = '#555';
-      ctx.font = '7px monospace';
+      const bestBid = bids[0].price;
+      const bestAsk = asks[asks.length - 1].price;
+      const spread = Math.abs(bestAsk - bestBid);
+      const spreadBps = (spread / mid * 10000).toFixed(1);
+      ctx.fillStyle = '#666';
+      ctx.font = '8px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`spread: ${formatPrice(Math.abs(spread))}`, W / 2, midY + 10);
+      ctx.fillText(`spread: ${formatPrice(spread)} (${spreadBps} bps)`, W / 2, midY + 12);
       ctx.textAlign = 'left';
     }
 
-    // Draw bids
-    bids.forEach((bid, i) => {
-      const y = startY + i * rowH;
-      const w = (bid.qty / maxQty) * (W - priceW - 10);
-      const isWall = bid.qty > wallThreshold;
-
-      // Background bar
-      ctx.fillStyle = isWall ? 'rgba(0, 200, 83, 0.25)' : 'rgba(0, 200, 83, 0.08)';
-      ctx.fillRect(priceW, y, w, rowH - 1);
-
-      // Wall glow
-      if (isWall) {
-        ctx.shadowColor = '#00c853';
-        ctx.shadowBlur = 10;
-        ctx.fillStyle = 'rgba(0, 200, 83, 0.35)';
-        ctx.fillRect(priceW, y, w, rowH - 1);
-        ctx.shadowBlur = 0;
-      }
-
-      // Price label
-      ctx.fillStyle = isWall ? '#00e676' : '#00e67680';
-      ctx.font = `${isWall ? 'bold ' : ''}9px monospace`;
-      ctx.textAlign = 'right';
-      ctx.fillText(formatPrice(bid.price), priceW - 4, y + rowH - 4);
-      ctx.textAlign = 'left';
-
-      // Quantity
-      ctx.fillStyle = '#00e67660';
-      ctx.font = '7px monospace';
-      ctx.fillText(formatSize(bid.qty), priceW + w + 3, y + rowH - 4);
-    });
-
-    // Draw asks
+    // Draw asks (red, bottom section)
     asks.forEach((ask, i) => {
-      const y = midY + 14 + i * rowH;
-      const w = (ask.qty / maxQty) * (W - priceW - 10);
+      const y = midY + 18 + i * rowH;
+      const barMaxW = W - priceW - qtyW - 8;
+      const w = (ask.qty / maxQty) * barMaxW;
       const isWall = ask.qty > wallThreshold;
+      const fillAlpha = isWall ? 0.35 : 0.15;
 
-      ctx.fillStyle = isWall ? 'rgba(255, 23, 68, 0.25)' : 'rgba(255, 23, 68, 0.08)';
-      ctx.fillRect(priceW, y, w, rowH - 1);
+      ctx.fillStyle = `rgba(239, 83, 80, ${fillAlpha})`;
+      ctx.fillRect(priceW, y, w, rowH - 2);
 
       if (isWall) {
-        ctx.shadowColor = '#ff1744';
-        ctx.shadowBlur = 10;
-        ctx.fillStyle = 'rgba(255, 23, 68, 0.35)';
-        ctx.fillRect(priceW, y, w, rowH - 1);
+        ctx.shadowColor = '#ef5350';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = 'rgba(239, 83, 80, 0.5)';
+        ctx.fillRect(priceW, y, w, rowH - 2);
         ctx.shadowBlur = 0;
+
+        ctx.strokeStyle = '#ef535080';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(priceW, y, w, rowH - 2);
       }
 
-      ctx.fillStyle = isWall ? '#ff1744' : '#ff174480';
-      ctx.font = `${isWall ? 'bold ' : ''}9px monospace`;
+      ctx.fillStyle = isWall ? '#ef5350' : '#ef535090';
+      ctx.font = `${isWall ? 'bold ' : ''}10px monospace`;
       ctx.textAlign = 'right';
-      ctx.fillText(formatPrice(ask.price), priceW - 4, y + rowH - 4);
+      ctx.fillText(formatPrice(ask.price), priceW - 6, y + rowH - 5);
       ctx.textAlign = 'left';
 
-      ctx.fillStyle = '#ff174460';
-      ctx.font = '7px monospace';
-      ctx.fillText(formatSize(ask.qty), priceW + w + 3, y + rowH - 4);
+      ctx.fillStyle = isWall ? '#ef5350' : '#ef535060';
+      ctx.font = `${isWall ? 'bold ' : ''}8px monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillText(formatSize(ask.qty), priceW + w + 4, y + rowH - 5);
     });
 
   }, [heatmap]);

@@ -25,7 +25,7 @@ export function Footprint() {
     ctx.clearRect(0, 0, W, H);
 
     if (!footprints || footprints.length === 0) {
-      ctx.fillStyle = '#333';
+      ctx.fillStyle = '#444';
       ctx.font = '11px monospace';
       ctx.textAlign = 'center';
       ctx.fillText('Building footprint data...', W / 2, H / 2);
@@ -33,15 +33,23 @@ export function Footprint() {
       return;
     }
 
-    // Title
-    ctx.fillStyle = '#444';
-    ctx.font = '8px monospace';
-    ctx.fillText('FOOTPRINT (VOLUME CLUSTERS)', 6, 10);
+    // Title + legend
+    ctx.fillStyle = '#555';
+    ctx.font = 'bold 9px monospace';
+    ctx.fillText('FOOTPRINT', 6, 12);
+
+    ctx.font = '7px monospace';
+    ctx.fillStyle = '#26a69a';
+    ctx.fillText('● Bid vol', 80, 12);
+    ctx.fillStyle = '#ef5350';
+    ctx.fillText('● Ask vol', 130, 12);
+    ctx.fillStyle = '#555';
+    ctx.fillText('= volume at price', 178, 12);
 
     const candles = footprints.slice(-8);
-    const candleW = Math.min(100, (W - 10) / candles.length);
+    const candleW = Math.min(110, (W - 10) / candles.length);
     const startX = 6;
-    const topY = 16;
+    const topY = 20;
     const maxH = H - topY - 6;
 
     // Global max volume
@@ -58,61 +66,65 @@ export function Footprint() {
       const isGreen = candle.close >= candle.open;
 
       // Background column
-      const bgColor = isGreen ? 'rgba(0, 230, 118, 0.03)' : 'rgba(255, 23, 68, 0.03)';
-      ctx.fillStyle = bgColor;
+      ctx.fillStyle = isGreen ? 'rgba(38, 166, 154, 0.04)' : 'rgba(239, 83, 80, 0.04)';
       ctx.fillRect(x, topY, candleW - 2, maxH);
+
+      // Column border
+      ctx.strokeStyle = '#1a1a2e';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x, topY, candleW - 2, maxH);
 
       // Time label
       const d = new Date(candle.open_time * 1000);
       const mins = d.toTimeString().slice(0, 5);
-      ctx.fillStyle = '#666';
-      ctx.font = '7px monospace';
-      ctx.fillText(mins, x + 2, topY + 9);
+      ctx.fillStyle = '#888';
+      ctx.font = 'bold 8px monospace';
+      ctx.fillText(mins, x + 3, topY + 10);
 
       // Delta
-      ctx.fillStyle = candle.total_delta >= 0 ? '#00e676' : '#ff1744';
-      ctx.font = '7px monospace';
-      ctx.fillText(`Δ${formatDelta(candle.total_delta)}`, x + 2, topY + 18);
+      ctx.fillStyle = candle.total_delta >= 0 ? '#26a69a' : '#ef5350';
+      ctx.font = 'bold 8px monospace';
+      ctx.fillText(`Δ${formatDelta(candle.total_delta)}`, x + 3, topY + 20);
 
-      // Volume levels (top 7 by volume)
+      // Volume levels (top 8 by volume)
       const levels = [...candle.levels]
         .sort((a, b) => (b.bid_vol + b.ask_vol) - (a.bid_vol + a.ask_vol))
-        .slice(0, 7);
+        .slice(0, 8);
 
       levels.forEach((lv, li) => {
-        const ly = topY + 24 + li * 13;
-        if (ly > H - 8) return;
+        const ly = topY + 26 + li * 14;
+        if (ly > H - 10) return;
 
         const total = lv.bid_vol + lv.ask_vol;
-        const barW = (total / globalMaxVol) * (candleW - 14);
-
+        const barW = Math.max((total / globalMaxVol) * (candleW - 16), 2);
         const bidW = total > 0 ? (lv.bid_vol / total) * barW : 0;
 
         // Bid bar (green)
-        ctx.fillStyle = 'rgba(0, 230, 118, 0.2)';
-        ctx.fillRect(x + 2, ly, bidW, 9);
+        ctx.fillStyle = 'rgba(38, 166, 154, 0.3)';
+        ctx.fillRect(x + 3, ly, bidW, 10);
 
         // Ask bar (red)
-        ctx.fillStyle = 'rgba(255, 23, 68, 0.2)';
-        ctx.fillRect(x + 2 + bidW, ly, barW - bidW, 9);
+        ctx.fillStyle = 'rgba(239, 83, 80, 0.3)';
+        ctx.fillRect(x + 3 + bidW, ly, barW - bidW, 10);
 
-        // Imbalance highlight
+        // Imbalance highlight — strong single-side dominance
         if (Math.abs(lv.imbalance) > 0.6) {
-          ctx.strokeStyle = lv.imbalance > 0 ? '#00e67660' : '#ff174460';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x + 1, ly - 1, barW + 2, 11);
+          ctx.strokeStyle = lv.imbalance > 0 ? '#26a69a' : '#ef5350';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(x + 2, ly - 1, barW + 2, 12);
         }
 
         // Price label
-        ctx.fillStyle = '#777';
-        ctx.font = '6px monospace';
-        ctx.fillText(lv.price.toFixed(1), x + Math.min(barW + 4, candleW - 14), ly + 7);
+        ctx.fillStyle = '#999';
+        ctx.font = '7px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(lv.price.toFixed(1), x + Math.min(barW + 5, candleW - 16), ly + 8);
       });
 
       // Total volume footer
-      ctx.fillStyle = '#444';
-      ctx.font = '6px monospace';
-      ctx.fillText(`V:${candle.total_vol.toFixed(1)}`, x + 2, H - 2);
+      ctx.fillStyle = '#666';
+      ctx.font = 'bold 7px monospace';
+      ctx.fillText(`V:${candle.total_vol.toFixed(1)}`, x + 3, H - 3);
     });
   }, [footprints]);
 

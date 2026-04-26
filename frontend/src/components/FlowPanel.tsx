@@ -4,7 +4,7 @@ import { formatDelta, formatPct, formatVol, formatPrice } from '../services/form
 
 export function FlowPanel() {
   const flow = useStore(s => s.flow);
-  const deltaColor = (v: number | undefined) => (v ?? 0) >= 0 ? '#00e676' : '#ff1744';
+  const deltaColor = (v: number | undefined) => (v ?? 0) >= 0 ? '#26a69a' : '#ef5350';
 
   const buyPct = flow.taker_buy_vol && flow.taker_sell_vol
     ? (flow.taker_buy_vol / (flow.taker_buy_vol + flow.taker_sell_vol) * 100)
@@ -14,34 +14,34 @@ export function FlowPanel() {
   return (
     <div style={styles.panel}>
       {/* Order Flow Section */}
-      <Section title="ORDER FLOW">
-        <Metric label="Taker Buy" value={formatVol(flow.taker_buy_vol)} color="#00e676" />
-        <Metric label="Taker Sell" value={formatVol(flow.taker_sell_vol)} color="#ff1744" />
+      <Section title="ORDER FLOW" hint="Taker aggression">
+        <Metric label="Taker Buy" value={formatVol(flow.taker_buy_vol)} color="#26a69a" hint="aggressive buys" />
+        <Metric label="Taker Sell" value={formatVol(flow.taker_sell_vol)} color="#ef5350" hint="aggressive sells" />
         <div style={styles.separator} />
-        <Metric label="Delta" value={formatDelta(flow.delta)} color={deltaColor(flow.delta)} />
-        <Metric label="Cum Delta" value={formatDelta(flow.cum_delta)} color={deltaColor(flow.cum_delta)} />
+        <Metric label="Delta" value={formatDelta(flow.delta)} color={deltaColor(flow.delta)} hint="buy − sell" />
+        <Metric label="Cum Delta" value={formatDelta(flow.cum_delta)} color={deltaColor(flow.cum_delta)} hint="running total" />
         <div style={styles.separator} />
-        <Metric label="Imbalance" value={formatPct(flow.imbalance ?? 0)} color={deltaColor(flow.imbalance)} />
+        <Metric label="Imbalance" value={formatPct(flow.imbalance ?? 0)} color={deltaColor(flow.imbalance)} hint="bias strength" />
         <Metric label="Trades" value={String(flow.trade_count ?? 0)} />
-        <Metric label="Freq" value={(flow.trade_frequency ?? 0).toFixed(1) + '/s'} />
+        <Metric label="Freq" value={(flow.trade_frequency ?? 0).toFixed(1) + '/s'} hint="trades per sec" />
       </Section>
 
       {/* Session Stats */}
-      <Section title="SESSION">
-        <Metric label="VWAP" value={formatPrice(flow.vwap)} color="#f0b90b" />
-        <Metric label="High" value={formatPrice(flow.session_high)} color="#00e676" />
-        <Metric label="Low" value={formatPrice(flow.session_low)} color="#ff1744" />
+      <Section title="SESSION" hint="Since start">
+        <Metric label="VWAP" value={formatPrice(flow.vwap)} color="#f0b90b" hint="volume-weighted avg" />
+        <Metric label="High" value={formatPrice(flow.session_high)} color="#26a69a" />
+        <Metric label="Low" value={formatPrice(flow.session_low)} color="#ef5350" />
       </Section>
 
       {/* Delta Bar */}
-      <Section title="DELTA BAR">
+      <Section title="VOLUME SPLIT">
         <div style={styles.barOuter}>
           <div style={{ ...styles.barBuy, width: `${buyPct}%` }} />
           <div style={{ ...styles.barSell, width: `${sellPct}%` }} />
         </div>
         <div style={styles.barLabels}>
-          <span style={{ color: '#00e676' }}>{buyPct.toFixed(1)}%</span>
-          <span style={{ color: '#ff1744' }}>{sellPct.toFixed(1)}%</span>
+          <span style={{ color: '#26a69a' }}>Buy {buyPct.toFixed(1)}%</span>
+          <span style={{ color: '#ef5350' }}>Sell {sellPct.toFixed(1)}%</span>
         </div>
       </Section>
 
@@ -53,12 +53,11 @@ export function FlowPanel() {
         }}>
           {formatDelta(flow.cum_delta)}
         </div>
-        {/* Mini delta direction indicator */}
         <div style={styles.directionIndicator}>
           {(flow.cum_delta ?? 0) > 0 ? (
-            <span style={{ color: '#00e676', fontSize: 18 }}>▲</span>
+            <span style={{ color: '#26a69a', fontSize: 18 }}>▲</span>
           ) : (flow.cum_delta ?? 0) < 0 ? (
-            <span style={{ color: '#ff1744', fontSize: 18 }}>▼</span>
+            <span style={{ color: '#ef5350', fontSize: 18 }}>▼</span>
           ) : (
             <span style={{ color: '#555', fontSize: 18 }}>—</span>
           )}
@@ -68,19 +67,22 @@ export function FlowPanel() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, hint }: { title: string; children: React.ReactNode; hint?: string }) {
   return (
     <div style={styles.section}>
-      <div style={styles.sectionTitle}>{title}</div>
+      <div style={styles.sectionTitleRow}>
+        <span style={styles.sectionTitle}>{title}</span>
+        {hint && <span style={styles.sectionHint}>{hint}</span>}
+      </div>
       {children}
     </div>
   );
 }
 
-function Metric({ label, value, color }: { label: string; value: string; color?: string }) {
+function Metric({ label, value, color, hint }: { label: string; value: string; color?: string; hint?: string }) {
   return (
     <div style={styles.metric}>
-      <span style={styles.metricLabel}>{label}</span>
+      <span style={styles.metricLabel} title={hint}>{label}</span>
       <span style={{ ...styles.metricValue, color: color || '#e0e0e0' }}>{value}</span>
     </div>
   );
@@ -98,14 +100,24 @@ const styles: Record<string, React.CSSProperties> = {
   section: {
     marginBottom: 10,
   },
-  sectionTitle: {
-    fontSize: 8,
-    color: '#444',
-    letterSpacing: 2,
-    marginBottom: 4,
+  sectionTitleRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
     borderBottom: '1px solid #1a1a2e',
     paddingBottom: 3,
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    fontSize: 8,
+    color: '#666',
+    letterSpacing: 2,
     textTransform: 'uppercase' as const,
+  },
+  sectionHint: {
+    fontSize: 7,
+    color: '#444',
+    fontStyle: 'italic' as const,
   },
   separator: {
     height: 1,
@@ -116,12 +128,13 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '1px 0',
+    padding: '2px 0',
     fontSize: 10,
   },
   metricLabel: {
-    color: '#555',
+    color: '#777',
     fontSize: 9,
+    cursor: 'help',
   },
   metricValue: {
     fontWeight: 600,
@@ -130,27 +143,27 @@ const styles: Record<string, React.CSSProperties> = {
   },
   barOuter: {
     display: 'flex',
-    height: 5,
-    borderRadius: 2,
+    height: 6,
+    borderRadius: 3,
     overflow: 'hidden',
     marginTop: 3,
   },
   barBuy: {
-    background: '#00e676',
+    background: '#26a69a',
     transition: 'width 0.3s',
   },
   barSell: {
-    background: '#ff1744',
+    background: '#ef5350',
     transition: 'width 0.3s',
   },
   barLabels: {
     display: 'flex',
     justifyContent: 'space-between',
     fontSize: 8,
-    marginTop: 2,
+    marginTop: 3,
   },
   cumDeltaVal: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 700,
     textAlign: 'center' as const,
     padding: '6px 0 2px',
