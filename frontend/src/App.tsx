@@ -12,7 +12,6 @@ import { Footprint } from './components/Footprint';
 import { MicroPanel } from './components/MicroPanel';
 import { SessionContext } from './components/SessionContext';
 import { NewsPanel } from './components/NewsPanel';
-import { EventPanel } from './components/EventPanel';
 
 export default function App() {
   useWebSocket();
@@ -62,11 +61,6 @@ export default function App() {
           <div style={styles.bubbleWrap}>
             <BubbleTape />
           </div>
-        </div>
-
-        {/* Event Engine Column */}
-        <div style={styles.eventCol}>
-          <EventPanel />
         </div>
 
         {/* Far Right Column: Sessions + News */}
@@ -128,7 +122,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #1a1a2e',
     borderRadius: 3,
   },
-  // 5-column horizontal layout
+  // 4-column horizontal layout
   main: {
     flex: 1,
     display: 'flex',
@@ -170,7 +164,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#0d0d14',
   },
   rightCol: {
-    width: 280,
+    width: 300,
     flexShrink: 0,
     background: '#0d0d14',
     borderLeft: '1px solid #1a1a2e',
@@ -190,17 +184,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: '1px solid #1a1a2e',
     overflow: 'auto',
   },
-  eventCol: {
-    width: 300,
-    flexShrink: 0,
-    background: '#0a0a0f',
-    borderRight: '1px solid #1a1a2e',
-    overflow: 'hidden',
-    display: 'flex',
-    flexDirection: 'column',
-  },
   farRightCol: {
-    width: 200,
+    width: 220,
     flexShrink: 0,
     background: '#0d0d14',
     display: 'flex',

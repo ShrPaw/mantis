@@ -3,11 +3,15 @@ MANTIS — BTCUSDT Microstructure Dashboard (Hyperliquid)
 Real-time decision-support for intraday BTC trading.
 
 Data source: Hyperliquid DEX (decentralized, no API key, no blocks)
+
+Event Engine: additive layer, feature-flagged. If disabled or failing,
+MANTIS continues to work exactly as before.
 """
 
 import asyncio
 import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -17,13 +21,29 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from hyperliquid_ws import HyperliquidStreamManager
 from metrics import MicrostructureEngine
-from event_engine import EventManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ============================================================
+# Feature flag: set EVENT_ENGINE_ENABLED=false to disable
+# ============================================================
+EVENT_ENGINE_ENABLED = os.environ.get("EVENT_ENGINE_ENABLED", "true").lower() in ("true", "1", "yes")
+
+# Lazy-load event engine — never crash MANTIS if it fails
+event_mgr = None
+if EVENT_ENGINE_ENABLED:
+    try:
+        from event_engine import EventManager
+        event_mgr = EventManager()
+        logger.info("Event Engine Pro: ENABLED")
+    except Exception as e:
+        logger.warning(f"Event Engine Pro: FAILED TO LOAD — {e}. MANTIS continues without it.")
+        event_mgr = None
+else:
+    logger.info("Event Engine Pro: DISABLED (EVENT_ENGINE_ENABLED=false)")
+
 engine = MicrostructureEngine()
-event_mgr = EventManager()
 stream_mgr = HyperliquidStreamManager()
 connected_clients: set[WebSocket] = set()
 
@@ -83,8 +103,11 @@ async def fetch_historical_candles():
 
 
 # --- Hyperliquid stream handlers ---
+# Original behavior preserved exactly. Event Engine hooks are additive
+# and wrapped in try/except — failures never affect the core pipeline.
 
 def on_trade(trade: dict):
+    """Original trade handler — unchanged behavior."""
     bubble = engine.process_trade({
         "p": trade["px"],
         "q": trade["sz"],
@@ -93,32 +116,38 @@ def on_trade(trade: dict):
         "a": trade["tid"],
     })
     if bubble:
-        event_mgr.on_large_trade(
-            price=bubble["price"], qty=bubble["qty"],
-            side=bubble["side"], timestamp=bubble["timestamp"],
-        )
         asyncio.ensure_future(broadcast({"type": "large_trade", "data": bubble}))
 
-    # Run event engine on every trade
-    price = float(trade["px"])
-    qty = float(trade["sz"])
-    is_seller_aggressive = trade["side"] == "A"
-    delta = -qty if is_seller_aggressive else qty
-    ts = trade["time"] / 1000.0
+    # --- Event Engine hook (additive, non-breaking) ---
+    if event_mgr is not None:
+        try:
+            if bubble:
+                event_mgr.on_large_trade(
+                    price=bubble["price"], qty=bubble["qty"],
+                    side=bubble["side"], timestamp=bubble["timestamp"],
+                )
 
-    # Update session context
-    event_mgr.on_session_update(
-        vwap=engine.flow.vwap,
-        session_high=engine.flow.session_high,
-        session_low=engine.flow.session_low if engine.flow.session_low != float("inf") else 0,
-    )
+            price = float(trade["px"])
+            qty = float(trade["sz"])
+            is_seller_aggressive = trade["side"] == "A"
+            delta = -qty if is_seller_aggressive else qty
+            ts = trade["time"] / 1000.0
 
-    detected = event_mgr.on_trade(price, qty, delta, ts)
-    if detected:
-        asyncio.ensure_future(broadcast({"type": "event_detected", "data": detected}))
+            event_mgr.on_session_update(
+                vwap=engine.flow.vwap,
+                session_high=engine.flow.session_high,
+                session_low=engine.flow.session_low if engine.flow.session_low != float("inf") else 0,
+            )
+
+            detected = event_mgr.on_trade(price, qty, delta, ts)
+            if detected:
+                asyncio.ensure_future(broadcast({"type": "event_detected", "data": detected}))
+        except Exception as e:
+            logger.debug(f"Event Engine error (non-fatal): {e}")
 
 
 def on_book(book: dict):
+    """Original book handler — unchanged behavior."""
     bids = []
     asks = []
     levels = book.get("levels", [])
@@ -128,20 +157,26 @@ def on_book(book: dict):
         asks = [(l["px"], l["sz"]) for l in levels[1]]
     engine.process_depth({"b": bids, "a": asks})
 
-    # Update event engine book state
-    if bids and asks:
-        float_bids = [(float(p), float(q)) for p, q in bids]
-        float_asks = [(float(p), float(q)) for p, q in asks]
-        event_mgr.on_book(float_bids, float_asks)
+    # --- Event Engine hook (additive, non-breaking) ---
+    if event_mgr is not None:
+        try:
+            if bids and asks:
+                float_bids = [(float(p), float(q)) for p, q in bids]
+                float_asks = [(float(p), float(q)) for p, q in asks]
+                event_mgr.on_book(float_bids, float_asks)
+        except Exception as e:
+            logger.debug(f"Event Engine book error (non-fatal): {e}")
 
 
 def on_candle(candle: dict):
+    """Original candle handler — unchanged."""
     engine.process_candle(candle)
 
 
 # --- Periodic broadcaster ---
 
 async def metrics_broadcaster():
+    """Broadcasts core metrics every 250ms. Event stats only when engine is active."""
     while True:
         await asyncio.sleep(0.25)
         try:
@@ -161,10 +196,15 @@ async def metrics_broadcaster():
                 "type": "absorption",
                 "data": engine.get_absorption_zones(),
             })
-            await broadcast({
-                "type": "event_stats",
-                "data": event_mgr.get_event_stats(),
-            })
+            # Event stats — only when engine is active
+            if event_mgr is not None:
+                try:
+                    await broadcast({
+                        "type": "event_stats",
+                        "data": event_mgr.get_event_stats(),
+                    })
+                except Exception:
+                    pass
         except Exception as e:
             logger.error(f"Broadcast error: {e}")
 
@@ -183,8 +223,18 @@ async def lifespan(app: FastAPI):
     stream_task = asyncio.create_task(stream_mgr.start())
     broadcast_task = asyncio.create_task(metrics_broadcaster())
 
-    logger.info("MANTIS engine started (Hyperliquid)")
+    if event_mgr is not None:
+        logger.info("MANTIS engine started (Hyperliquid) — Event Engine Pro: ACTIVE")
+    else:
+        logger.info("MANTIS engine started (Hyperliquid) — Event Engine: OFF")
     yield
+
+    # Shutdown: flush event logger
+    if event_mgr is not None:
+        try:
+            event_mgr.flush()
+        except Exception:
+            pass
 
     broadcast_task.cancel()
     stream_task.cancel()
@@ -209,19 +259,25 @@ async def websocket_endpoint(ws: WebSocket):
     connected_clients.add(ws)
     logger.info(f"Client connected ({len(connected_clients)} total)")
     try:
-        await ws.send_text(json.dumps({
-            "type": "init",
-            "data": {
-                "flow": engine.get_flow_metrics(),
-                "heatmap": engine.get_heatmap_data(),
-                "footprints": engine.get_footprints(),
-                "large_trades": engine.get_large_trades(),
-                "absorption": engine.get_absorption_zones(),
-                "candles": _candle_cache,
-                "events": event_mgr.get_events(limit=50),
-                "event_stats": event_mgr.get_event_stats(),
-            }
-        }))
+        # Init payload — original fields always present, event fields conditional
+        init_data = {
+            "flow": engine.get_flow_metrics(),
+            "heatmap": engine.get_heatmap_data(),
+            "footprints": engine.get_footprints(),
+            "large_trades": engine.get_large_trades(),
+            "absorption": engine.get_absorption_zones(),
+            "candles": _candle_cache,
+        }
+        # Add event data only if engine is active
+        if event_mgr is not None:
+            try:
+                init_data["events"] = event_mgr.get_events(limit=50)
+                init_data["event_stats"] = event_mgr.get_event_stats()
+            except Exception:
+                init_data["events"] = []
+                init_data["event_stats"] = {}
+
+        await ws.send_text(json.dumps({"type": "init", "data": init_data}))
 
         while True:
             msg = await ws.receive_text()
@@ -236,19 +292,26 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.get("/health")
 async def health():
-    stats = event_mgr.get_event_stats()
-    return {
+    """Health endpoint — event fields only when engine is active."""
+    result = {
         "status": "ok",
         "source": "hyperliquid",
         "clients": len(connected_clients),
         "trade_count": engine.flow.trade_count,
         "candles_loaded": len(_candle_cache),
         "uptime": time.time() - engine._session_start,
-        "events_total": stats["total"],
-        "events_fired": stats["fired"],
-        "events_deduped": stats["deduped"],
-        "pending_outcomes": stats["pending_outcomes"],
+        "event_engine": "active" if event_mgr is not None else "disabled",
     }
+    if event_mgr is not None:
+        try:
+            stats = event_mgr.get_event_stats()
+            result["events_total"] = stats["total"]
+            result["events_fired"] = stats["fired"]
+            result["events_deduped"] = stats["deduped"]
+            result["pending_outcomes"] = stats["pending_outcomes"]
+        except Exception:
+            result["event_engine"] = "error"
+    return result
 
 
 if __name__ == "__main__":
