@@ -1,7 +1,7 @@
 // MANTIS Dashboard — WebSocket connection with auto-reconnect
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store';
-import type { LargeTrade } from '../types';
+import type { LargeTrade, MarketEvent } from '../types';
 
 const RECONNECT_DELAY = 1000;
 const PING_INTERVAL = 15000;
@@ -14,6 +14,7 @@ export function useWebSocket() {
   const {
     setConnected, setFlow, setHeatmap, setFootprints,
     setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro,
+    addEvents, setEventStats,
   } = useStore();
 
   const connect = useCallback(() => {
@@ -66,6 +67,16 @@ export function useWebSocket() {
             addTradeTape(trade);
             break;
           }
+          case 'event_detected': {
+            // Event engine fires one or more events
+            const evts = Array.isArray(msg.data) ? msg.data : [msg.data];
+            addEvents(evts as MarketEvent[]);
+            break;
+          }
+          case 'event_stats': {
+            setEventStats(msg.data);
+            break;
+          }
           case 'pong':
             break;
         }
@@ -81,7 +92,7 @@ export function useWebSocket() {
     };
 
     ws.onerror = () => ws.close();
-  }, [setConnected, setFlow, setHeatmap, setFootprints, setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro]);
+  }, [setConnected, setFlow, setHeatmap, setFootprints, setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro, addEvents, setEventStats]);
 
   useEffect(() => {
     connect();
