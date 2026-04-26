@@ -17,13 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from hyperliquid_ws import HyperliquidStreamManager
 from metrics import MicrostructureEngine
-from event_engine import EventEngine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 engine = MicrostructureEngine()
-event_engine = EventEngine()
 stream_mgr = HyperliquidStreamManager()
 connected_clients: set[WebSocket] = set()
 
@@ -93,31 +91,7 @@ def on_trade(trade: dict):
         "a": trade["tid"],
     })
     if bubble:
-        event_engine.record_bubble(
-            price=bubble["price"],
-            qty=bubble["qty"],
-            side=bubble["side"],
-            timestamp=bubble["timestamp"],
-        )
         asyncio.ensure_future(broadcast({"type": "large_trade", "data": bubble}))
-
-    # Run event detection on every trade
-    price = float(trade["px"])
-    qty = float(trade["sz"])
-    is_seller_aggressive = trade["side"] == "A"
-    delta = -qty if is_seller_aggressive else qty
-    ts = trade["time"] / 1000.0
-
-    # Update session context for event engine
-    event_engine.update_session(
-        vwap=engine.flow.vwap,
-        session_high=engine.flow.session_high,
-        session_low=engine.flow.session_low if engine.flow.session_low != float("inf") else 0,
-    )
-
-    detected = event_engine.on_trade(price, qty, delta, ts)
-    if detected:
-        asyncio.ensure_future(broadcast({"type": "event_detected", "data": detected}))
 
 
 def on_book(book: dict):
@@ -129,14 +103,6 @@ def on_book(book: dict):
     if len(levels) >= 2:
         asks = [(l["px"], l["sz"]) for l in levels[1]]
     engine.process_depth({"b": bids, "a": asks})
-
-    # Update event engine with book context
-    if bids and asks:
-        best_bid = max(float(b[0]) for b in bids)
-        best_ask = min(float(a[0]) for a in asks)
-        bid_depth = sum(float(b[1]) for b in bids[:10])
-        ask_depth = sum(float(a[1]) for a in asks[:10])
-        event_engine.update_book(best_bid, best_ask, bid_depth, ask_depth)
 
 
 def on_candle(candle: dict):
@@ -164,10 +130,6 @@ async def metrics_broadcaster():
             await broadcast({
                 "type": "absorption",
                 "data": engine.get_absorption_zones(),
-            })
-            await broadcast({
-                "type": "event_stats",
-                "data": event_engine.get_event_stats(),
             })
         except Exception as e:
             logger.error(f"Broadcast error: {e}")
@@ -222,8 +184,6 @@ async def websocket_endpoint(ws: WebSocket):
                 "large_trades": engine.get_large_trades(),
                 "absorption": engine.get_absorption_zones(),
                 "candles": _candle_cache,
-                "events": event_engine.get_events(limit=50),
-                "event_stats": event_engine.get_event_stats(),
             }
         }))
 
@@ -240,7 +200,6 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.get("/health")
 async def health():
-    stats = event_engine.get_event_stats()
     return {
         "status": "ok",
         "source": "hyperliquid",
@@ -248,8 +207,6 @@ async def health():
         "trade_count": engine.flow.trade_count,
         "candles_loaded": len(_candle_cache),
         "uptime": time.time() - engine._session_start,
-        "events_total": stats["total"],
-        "events_measured": stats["measured_count"],
     }
 
 
