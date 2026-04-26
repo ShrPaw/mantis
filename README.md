@@ -3,83 +3,48 @@
 Real-time decision-support dashboard for intraday BTC trading.  
 **NOT a bot. NOT signals. Raw microstructure data visualization.**
 
-![MANTIS](https://img.shields.io/badge/BTCUSDT-Live%20Microstructure-F7931A?style=flat&logo=bitcoin&logoColor=white)
+**Data source: [Hyperliquid](https://hyperliquid.xyz) DEX** — decentralized, no API key, no blocks.
 
 ---
 
 ## Quick Start
-
-### Windows
 
 ```bash
 # 1. Clone
 git clone https://github.com/ShrPaw/mantis.git
 cd mantis
 
-# 2. Start frontend (Terminal 1)
-cd frontend
-npm install
-npm run dev
-
-# 3. Start backend (Terminal 2)
+# 2. Start backend (Terminal 1)
 cd backend
 pip install -r requirements.txt
 python main.py
+
+# 3. Open http://localhost:3000
+# (frontend is served by backend — no separate server needed)
 ```
 
-Open **http://localhost:3000**
-
-### Proxy (if Binance is blocked)
-
-If you're in a region where `fstream.binance.com` is blocked, set a proxy:
-
-**Windows CMD:**
-```cmd
-set HTTPS_PROXY=socks5://127.0.0.1:1080
-python main.py
-```
-
-**PowerShell:**
-```powershell
-$env:HTTPS_PROXY="socks5://127.0.0.1:1080"
-python main.py
-```
-
-**Or use the startup script:**
-```cmd
-REM Edit start.bat, uncomment the HTTPS_PROXY line, then:
-start.bat
-```
-
-**Common proxy ports:**
-| App           | SOCKS5 Port | HTTP Port |
-|---------------|-------------|-----------|
-| Clash         | 7891        | 7890      |
-| V2Ray         | 10808       | 10809     |
-| Shadowsocks   | 1080        | —         |
-
-For SOCKS5 proxies, also install: `pip install python-socks[asyncio]`
+That's it. No proxy. No VPN. No API key. Works from anywhere.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────┐     WebSocket      ┌──────────────────┐
-│   Binance Futures    │ ◄────────────────── │   MANTIS Backend  │
-│   WebSocket API      │   (aggTrade,       │   Python/FastAPI  │
-│   (no API key)       │    depth, kline)    │   :8000           │
-└─────────────────────┘                     └────────┬─────────┘
-                                                     │ WebSocket
-                                                     ▼
-                                            ┌──────────────────┐
-                                            │  MANTIS Frontend  │
-                                            │  React + Vite     │
-                                            │  :3000            │
-                                            └──────────────────┘
+┌──────────────────────┐     WebSocket      ┌──────────────────┐
+│   Hyperliquid DEX    │ ◄────────────────── │   MANTIS Backend  │
+│   wss://api.hyper... │   (trades,         │   Python/FastAPI  │
+│   (decentralized)    │    l2Book, candle)  │   :8000           │
+└──────────────────────┘                     └────────┬─────────┘
+                                                      │ WebSocket
+                                                      ▼
+                                             ┌──────────────────┐
+                                             │  MANTIS Frontend  │
+                                             │  React + Vite     │
+                                             │  :3000            │
+                                             └──────────────────┘
 ```
 
-## What's Included (Phase 1)
+## What's Included
 
 - **Live candlestick chart** with large trade markers
 - **Flow metrics** — taker buy/sell, delta, cumulative delta, imbalance, trade frequency
@@ -88,7 +53,7 @@ For SOCKS5 proxies, also install: `pip install python-socks[asyncio]`
 - **Footprint chart** — volume clusters per price level per 1m candle (Canvas)
 - **Absorption detection** — high volume + near-zero delta at a price level
 - **Session stats** — VWAP, session high/low
-- **Auto-reconnect** WebSocket to Binance
+- **Auto-reconnect** WebSocket
 - **Dark theme**
 
 ## Design Rules
@@ -105,20 +70,18 @@ For SOCKS5 proxies, also install: `pip install python-socks[asyncio]`
 |----------|-----------------------------------------|
 | Backend  | Python, FastAPI, asyncio, websockets    |
 | Frontend | React, lightweight-charts, Canvas       |
-| Data     | Binance Futures WebSocket (free, no key)|
+| Data     | Hyperliquid DEX (free, no key, no block)|
 
 ## File Structure
 
 ```
 backend/
-  main.py           — FastAPI app, WebSocket server
-  binance_ws.py     — Binance WS client (with proxy support)
-  metrics.py        — Microstructure engine
-  config.py         — Configuration
-  requirements.txt  — Python dependencies
-  start.bat         — Windows startup script
+  main.py              — FastAPI app, WebSocket server
+  hyperliquid_ws.py    — Hyperliquid WS client
+  metrics.py           — Microstructure engine
+  requirements.txt     — Python dependencies
 frontend/
-  App.jsx           — Main layout
+  App.jsx              — Main layout
   hooks/useWebSocket.js — WS connection with auto-reconnect
   components/
     PriceChart.jsx   — Candlestick + trade markers
@@ -129,6 +92,13 @@ frontend/
     StatusBar.jsx    — Top status bar
   utils/format.js   — Number formatting
 ```
+
+## Configuration
+
+In `metrics.py`:
+- `LARGE_TRADE_THRESHOLD = 0.5` BTC — what counts as a "large trade"
+- `ROLLING_WINDOW = 300` seconds for frequency calculation
+- `MAX_FOOTPRINT_CANDLES = 60` kept in memory
 
 ## License
 

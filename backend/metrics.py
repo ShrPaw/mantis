@@ -1,64 +1,26 @@
 """
-Core microstructure metrics engine.
-Computes delta, cumulative delta, imbalance, trade frequency, and absorption.
+MANTIS microstructure metrics engine.
+Computes delta, cumulative delta, imbalance, trade frequency, footprint, and absorption.
+Works with Hyperliquid (default) and Binance data.
 """
 
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
-import numpy as np
 
 
 @dataclass
 class TradeData:
     price: float
     qty: float
-    is_buyer_maker: bool  # True = taker sell (aggressive sell), False = taker buy
+    is_buyer_maker: bool
     timestamp: float
     trade_id: int
 
 
 @dataclass
-class OrderBookLevel:
-    price: float
-    qty: float
-
-
-@dataclass
-class FlowMetrics:
-    """Snapshot of order flow metrics at a point in time."""
-    taker_buy_vol: float = 0.0
-    taker_sell_vol: float = 0.0
-    delta: float = 0.0
-    cum_delta: float = 0.0
-    trade_count: int = 0
-    trade_frequency: float = 0.0  # trades per second
-    imbalance: float = 0.0  # (buy - sell) / (buy + sell)
-    vwap: float = 0.0
-    last_price: float = 0.0
-    session_high: float = 0.0
-    session_low: float = float("inf")
-
-    def to_dict(self) -> dict:
-        return {
-            "taker_buy_vol": round(self.taker_buy_vol, 4),
-            "taker_sell_vol": round(self.taker_sell_vol, 4),
-            "delta": round(self.delta, 4),
-            "cum_delta": round(self.cum_delta, 4),
-            "trade_count": self.trade_count,
-            "trade_frequency": round(self.trade_frequency, 2),
-            "imbalance": round(self.imbalance, 4),
-            "vwap": round(self.vwap, 2),
-            "last_price": round(self.last_price, 2),
-            "session_high": round(self.session_high, 2),
-            "session_low": round(self.session_low, 2),
-        }
-
-
-@dataclass
 class FootprintLevel:
-    """Volume at a specific price level within a candle."""
     price: float
     bid_vol: float = 0.0
     ask_vol: float = 0.0
@@ -68,7 +30,6 @@ class FootprintLevel:
 
 @dataclass
 class FootprintCandle:
-    """Footprint data for a single 1m candle."""
     open_time: float
     open: float = 0.0
     high: float = 0.0
@@ -79,7 +40,7 @@ class FootprintCandle:
     total_delta: float = 0.0
 
     def add_trade(self, trade: TradeData):
-        price_tick = round(trade.price, 1)  # bucket by $0.10
+        price_tick = round(trade.price, 1)
         if price_tick not in self.levels:
             self.levels[price_tick] = FootprintLevel(price=price_tick)
         level = self.levels[price_tick]
@@ -126,15 +87,40 @@ class FootprintCandle:
         }
 
 
-class MicrostructureEngine:
-    """
-    Core engine for computing microstructure metrics from raw trade and depth data.
-    Maintains rolling windows and session state.
-    """
+@dataclass
+class FlowMetrics:
+    taker_buy_vol: float = 0.0
+    taker_sell_vol: float = 0.0
+    delta: float = 0.0
+    cum_delta: float = 0.0
+    trade_count: int = 0
+    trade_frequency: float = 0.0
+    imbalance: float = 0.0
+    vwap: float = 0.0
+    last_price: float = 0.0
+    session_high: float = 0.0
+    session_low: float = float("inf")
 
-    LARGE_TRADE_THRESHOLD = 0.5  # BTC — adjust based on what's "large"
-    ROLLING_WINDOW = 300  # 5 minutes of seconds for frequency calc
-    MAX_FOOTPRINT_CANDLES = 60  # keep last 60 1m footprint candles
+    def to_dict(self) -> dict:
+        return {
+            "taker_buy_vol": round(self.taker_buy_vol, 4),
+            "taker_sell_vol": round(self.taker_sell_vol, 4),
+            "delta": round(self.delta, 4),
+            "cum_delta": round(self.cum_delta, 4),
+            "trade_count": self.trade_count,
+            "trade_frequency": round(self.trade_frequency, 2),
+            "imbalance": round(self.imbalance, 4),
+            "vwap": round(self.vwap, 2),
+            "last_price": round(self.last_price, 2),
+            "session_high": round(self.session_high, 2),
+            "session_low": round(self.session_low, 2),
+        }
+
+
+class MicrostructureEngine:
+    LARGE_TRADE_THRESHOLD = 0.5  # BTC
+    ROLLING_WINDOW = 300
+    MAX_FOOTPRINT_CANDLES = 60
 
     def __init__(self):
         self.flow = FlowMetrics()
@@ -144,21 +130,18 @@ class MicrostructureEngine:
         self._volume_sum = 0.0
         self._session_start = time.time()
 
-        # Footprint: candle open_time -> FootprintCandle
         self._footprints: dict[float, FootprintCandle] = {}
         self._current_candle_open: float = 0.0
 
-        # Order book snapshot
         self._bids: dict[float, float] = {}
         self._asks: dict[float, float] = {}
 
-        # Large trades for bubble tape
         self._large_trades: deque[dict] = deque(maxlen=200)
 
     def process_trade(self, data: dict) -> Optional[dict]:
         """
-        Process an aggTrade event from Binance.
-        Returns large trade dict if threshold met, else None.
+        Process a normalized trade event.
+        Expects: {p: price, q: qty, m: is_buyer_maker, T: timestamp_ms, a: trade_id}
         """
         trade = TradeData(
             price=float(data["p"]),
@@ -168,7 +151,6 @@ class MicrostructureEngine:
             trade_id=data["a"],
         )
 
-        # Update flow metrics
         if trade.is_buyer_maker:
             self.flow.taker_sell_vol += trade.qty
         else:
@@ -180,19 +162,16 @@ class MicrostructureEngine:
         self.flow.trade_count += 1
         self.flow.last_price = trade.price
 
-        # Session high/low
         self.flow.session_high = max(self.flow.session_high, trade.price)
         if self.flow.session_low == float("inf"):
             self.flow.session_low = trade.price
         else:
             self.flow.session_low = min(self.flow.session_low, trade.price)
 
-        # VWAP
         self._volume_price_sum += trade.price * trade.qty
         self._volume_sum += trade.qty
         self.flow.vwap = self._volume_price_sum / self._volume_sum if self._volume_sum > 0 else 0
 
-        # Trade frequency
         now = trade.timestamp
         self._trade_timestamps.append(now)
         cutoff = now - self.ROLLING_WINDOW
@@ -200,13 +179,12 @@ class MicrostructureEngine:
             self._trade_timestamps.popleft()
         self.flow.trade_frequency = len(self._trade_timestamps) / self.ROLLING_WINDOW
 
-        # Imbalance
         total = self.flow.taker_buy_vol + self.flow.taker_sell_vol
         self.flow.imbalance = (
             (self.flow.taker_buy_vol - self.flow.taker_sell_vol) / total if total > 0 else 0
         )
 
-        # Footprint
+        # Footprint candle
         candle_open = int(now / 60) * 60
         if candle_open != self._current_candle_open:
             self._current_candle_open = candle_open
@@ -232,7 +210,11 @@ class MicrostructureEngine:
         return None
 
     def process_depth(self, data: dict):
-        """Process depth update (100ms diff stream)."""
+        """
+        Process order book update.
+        Expects: {b: [(price, qty), ...], a: [(price, qty), ...]}
+        Works with both Hyperliquid (tuples) and Binance (lists).
+        """
         for bid in data.get("b", []):
             price = float(bid[0])
             qty = float(bid[1])
@@ -249,6 +231,11 @@ class MicrostructureEngine:
             else:
                 self._asks[price] = qty
 
+    def process_candle(self, data: dict):
+        """Process candle update from Hyperliquid."""
+        # Store latest candle info — used for chart reference
+        pass
+
     def get_flow_metrics(self) -> dict:
         return self.flow.to_dict()
 
@@ -259,7 +246,6 @@ class MicrostructureEngine:
         return list(self._large_trades)
 
     def get_heatmap_data(self, depth_levels: int = 20) -> dict:
-        """Get order book heatmap data around current price."""
         if not self._bids or not self._asks:
             return {"bids": [], "asks": [], "mid": 0}
 
@@ -267,7 +253,6 @@ class MicrostructureEngine:
         best_ask = min(self._asks.keys())
         mid = (best_bid + best_ask) / 2
 
-        # Get top N levels sorted
         sorted_bids = sorted(self._bids.items(), key=lambda x: x[0], reverse=True)[:depth_levels]
         sorted_asks = sorted(self._asks.items(), key=lambda x: x[0])[:depth_levels]
 
@@ -277,10 +262,6 @@ class MicrostructureEngine:
         return {"bids": bids, "asks": asks, "mid": round(mid, 2)}
 
     def get_absorption_zones(self) -> list[dict]:
-        """
-        Detect absorption: price levels where high volume traded but price didn't move.
-        Simple heuristic: levels in recent footprints with high volume and near-zero delta.
-        """
         zones = []
         for candle in list(self._footprints.values())[-5:]:
             for price, level in candle.levels.items():

@@ -7,7 +7,7 @@ export default function StatusBar({ connected, flow }) {
         ...styles.dot,
         background: connected ? '#00e676' : '#ff1744',
       }} />
-      <span style={styles.label}>{connected ? 'LIVE' : 'OFFLINE'}</span>
+      <span style={styles.label}>{connected ? 'HYPERLIQUID' : 'OFFLINE'}</span>
       <span style={styles.sep}>|</span>
       <span style={styles.price}>{formatPrice(flow.last_price)}</span>
       <span style={styles.sep}>|</span>

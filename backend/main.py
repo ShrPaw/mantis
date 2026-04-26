@@ -1,7 +1,8 @@
 """
-BTCUSDT Microstructure Dashboard — FastAPI backend.
-Connects to Binance Futures WebSocket streams and broadcasts
-processed microstructure data to frontend via WebSocket.
+MANTIS — BTCUSDT Microstructure Dashboard (Hyperliquid)
+Real-time decision-support for intraday BTC trading.
+
+Data source: Hyperliquid DEX (decentralized, no API key, no blocks)
 """
 
 import asyncio
@@ -13,20 +14,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from binance_ws import BinanceStreamManager
+from hyperliquid_ws import HyperliquidStreamManager
 from metrics import MicrostructureEngine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- State ---
 engine = MicrostructureEngine()
-stream_mgr = BinanceStreamManager()
+stream_mgr = HyperliquidStreamManager()
 connected_clients: set[WebSocket] = set()
 
 
 async def broadcast(message: dict):
-    """Send a message to all connected frontend clients."""
     if not connected_clients:
         return
     payload = json.dumps(message)
@@ -39,23 +38,55 @@ async def broadcast(message: dict):
     connected_clients.difference_update(dead)
 
 
-# --- Binance stream handlers ---
+# --- Hyperliquid stream handlers ---
 
-def on_agg_trade(data: dict):
-    """Handle incoming aggTrade event."""
-    bubble = engine.process_trade(data)
+def on_trade(trade: dict):
+    """Handle incoming trade from Hyperliquid.
+    Format: {coin, side, px, sz, hash, time, tid, users}
+    side: "B" = buy (taker buy), "A" = sell (taker sell)
+    """
+    bubble = engine.process_trade({
+        "p": trade["px"],
+        "q": trade["sz"],
+        "m": trade["side"] == "A",  # is_buyer_maker: True if taker sell
+        "T": trade["time"],
+        "a": trade["tid"],
+    })
     if bubble:
         asyncio.ensure_future(broadcast({"type": "large_trade", "data": bubble}))
 
 
-def on_depth(data: dict):
-    engine.process_depth(data)
+def on_book(book: dict):
+    """Handle l2Book update from Hyperliquid.
+    Format: {coin, levels: [[bids...], [asks...]], time}
+    Each level: {px, sz, n}
+    """
+    bids = []
+    asks = []
+    levels = book.get("levels", [])
+    if len(levels) >= 1:
+        bids = [(l["px"], l["sz"]) for l in levels[0]]
+    if len(levels) >= 2:
+        asks = [(l["px"], l["sz"]) for l in levels[1]]
+
+    engine.process_depth({
+        "b": bids,
+        "a": asks,
+    })
 
 
-# --- Periodic broadcast task ---
+def on_candle(candle: dict):
+    """Handle candle update from Hyperliquid.
+    Format: {T, o, h, l, c, v, n, ...}
+    """
+    # Candle data is used for chart — we handle it via kline data
+    # For now, store latest candle info
+    engine.process_candle(candle)
+
+
+# --- Periodic broadcaster ---
 
 async def metrics_broadcaster():
-    """Broadcast flow metrics and heatmap every 250ms."""
     while True:
         await asyncio.sleep(0.25)
         try:
@@ -83,16 +114,14 @@ async def metrics_broadcaster():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Register handlers
-    stream_mgr.on("aggTrade", on_agg_trade)
-    stream_mgr.on("depthUpdate", on_depth)
+    stream_mgr.on("trades", on_trade)
+    stream_mgr.on("l2Book", on_book)
+    stream_mgr.on("candle", on_candle)
 
-    # Start Binance streams
     stream_task = asyncio.create_task(stream_mgr.start())
-    # Start broadcaster
     broadcast_task = asyncio.create_task(metrics_broadcaster())
 
-    logger.info("Microstructure engine started")
+    logger.info("MANTIS engine started (Hyperliquid)")
     yield
 
     broadcast_task.cancel()
@@ -102,7 +131,7 @@ async def lifespan(app: FastAPI):
 
 # --- App ---
 
-app = FastAPI(title="BTC Microstructure Dashboard", lifespan=lifespan)
+app = FastAPI(title="MANTIS — BTC Microstructure", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -118,7 +147,6 @@ async def websocket_endpoint(ws: WebSocket):
     connected_clients.add(ws)
     logger.info(f"Client connected ({len(connected_clients)} total)")
     try:
-        # Send initial state
         await ws.send_text(json.dumps({
             "type": "init",
             "data": {
@@ -130,7 +158,6 @@ async def websocket_endpoint(ws: WebSocket):
             }
         }))
 
-        # Keep connection alive, listen for client messages
         while True:
             msg = await ws.receive_text()
             if msg == "ping":
@@ -146,6 +173,7 @@ async def websocket_endpoint(ws: WebSocket):
 async def health():
     return {
         "status": "ok",
+        "source": "hyperliquid",
         "clients": len(connected_clients),
         "trade_count": engine.flow.trade_count,
         "uptime": time.time() - engine._session_start,
