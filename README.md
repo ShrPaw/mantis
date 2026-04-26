@@ -1,115 +1,135 @@
-# BTCUSDT Microstructure Dashboard
+# MANTIS — BTCUSDT Microstructure Dashboard
 
-Real-time decision-support system for intraday trading. NOT a bot, NOT a signal generator — raw microstructure data visualization.
+Real-time decision-support dashboard for intraday BTC trading.  
+**NOT a bot. NOT signals. Raw microstructure data visualization.**
+
+![MANTIS](https://img.shields.io/badge/BTCUSDT-Live%20Microstructure-F7931A?style=flat&logo=bitcoin&logoColor=white)
+
+---
+
+## Quick Start
+
+### Windows
+
+```bash
+# 1. Clone
+git clone https://github.com/ShrPaw/mantis.git
+cd mantis
+
+# 2. Start frontend (Terminal 1)
+cd frontend
+npm install
+npm run dev
+
+# 3. Start backend (Terminal 2)
+cd backend
+pip install -r requirements.txt
+python main.py
+```
+
+Open **http://localhost:3000**
+
+### Proxy (if Binance is blocked)
+
+If you're in a region where `fstream.binance.com` is blocked, set a proxy:
+
+**Windows CMD:**
+```cmd
+set HTTPS_PROXY=socks5://127.0.0.1:1080
+python main.py
+```
+
+**PowerShell:**
+```powershell
+$env:HTTPS_PROXY="socks5://127.0.0.1:1080"
+python main.py
+```
+
+**Or use the startup script:**
+```cmd
+REM Edit start.bat, uncomment the HTTPS_PROXY line, then:
+start.bat
+```
+
+**Common proxy ports:**
+| App           | SOCKS5 Port | HTTP Port |
+|---------------|-------------|-----------|
+| Clash         | 7891        | 7890      |
+| V2Ray         | 10808       | 10809     |
+| Shadowsocks   | 1080        | —         |
+
+For SOCKS5 proxies, also install: `pip install python-socks[asyncio]`
+
+---
 
 ## Architecture
 
 ```
-Binance Futures WS ──► Python Backend (FastAPI) ──► WebSocket ──► React Frontend
-   aggTrade              metrics engine               broadcast      lightweight-charts
-   depth@100ms           delta / cum delta                         canvas heatmaps
-   kline_1m/5m           footprint / absorption                    bubble tape
+┌─────────────────────┐     WebSocket      ┌──────────────────┐
+│   Binance Futures    │ ◄────────────────── │   MANTIS Backend  │
+│   WebSocket API      │   (aggTrade,       │   Python/FastAPI  │
+│   (no API key)       │    depth, kline)    │   :8000           │
+└─────────────────────┘                     └────────┬─────────┘
+                                                     │ WebSocket
+                                                     ▼
+                                            ┌──────────────────┐
+                                            │  MANTIS Frontend  │
+                                            │  React + Vite     │
+                                            │  :3000            │
+                                            └──────────────────┘
 ```
 
-## Quick Start
+## What's Included (Phase 1)
 
-```bash
-# Terminal 1: Backend
-cd backend
-pip install -r requirements.txt
-python3 main.py
-
-# Terminal 2: Frontend
-cd frontend
-npm install
-npm run dev
-```
-
-Open http://localhost:3000
-
-## What It Shows
-
-### Live Price Panel
-- 1m candles with VWAP overlay
-- Session high/low
-- Large trade markers on chart
-
-### Order Flow Panel
-- Taker buy/sell volume
-- Delta (buy - sell)
-- Cumulative delta
-- Imbalance %
-- Trade frequency (trades/sec)
-
-### Bubble Tape
-- Large trades only (≥0.5 BTC)
-- Size-scaled bubbles
-- Color-coded by side (green=buy, red=sell)
-- Real-time streaming
-
-### Footprint / Cluster
-- Volume bucketed by price level per 1m candle
-- Bid/ask volume, delta, imbalance per level
-- High-volume nodes highlighted
-
-### Order Book Heatmap
-- Visualized bid/ask liquidity levels
-- Large walls glow
-- Mid-price line
-- Volume proportional to bar width
+- **Live candlestick chart** with large trade markers
+- **Flow metrics** — taker buy/sell, delta, cumulative delta, imbalance, trade frequency
+- **Bubble tape** — large trades (≥0.5 BTC) with size-scaled colored bubbles
+- **Order book heatmap** — bid/ask liquidity with wall detection (Canvas)
+- **Footprint chart** — volume clusters per price level per 1m candle (Canvas)
+- **Absorption detection** — high volume + near-zero delta at a price level
+- **Session stats** — VWAP, session high/low
+- **Auto-reconnect** WebSocket to Binance
+- **Dark theme**
 
 ## Design Rules
 
-- **No buy/sell signals**
-- **No predictive claims**
-- **No indicator stacking**
-- Only raw + processed microstructure data
-- Everything explainable and observable
+- ❌ No buy/sell signals
+- ❌ No predictive claims
+- ❌ No indicator stacking
+- ✅ Only raw + processed microstructure data
+- ✅ Everything explainable and observable
 
 ## Tech Stack
 
-| Layer | Tech |
-|-------|------|
-| Backend | Python, FastAPI, asyncio, websockets |
-| Frontend | React, lightweight-charts, Canvas |
-| Data | Binance Futures WebSocket |
-| Transport | WebSocket (backend ↔ frontend) |
+| Layer    | Tech                                    |
+|----------|-----------------------------------------|
+| Backend  | Python, FastAPI, asyncio, websockets    |
+| Frontend | React, lightweight-charts, Canvas       |
+| Data     | Binance Futures WebSocket (free, no key)|
 
 ## File Structure
 
 ```
 backend/
-  main.py           # FastAPI app + WebSocket server
-  binance_ws.py     # Binance Futures stream manager
-  metrics.py        # Microstructure computation engine
-  requirements.txt
-
+  main.py           — FastAPI app, WebSocket server
+  binance_ws.py     — Binance WS client (with proxy support)
+  metrics.py        — Microstructure engine
+  config.py         — Configuration
+  requirements.txt  — Python dependencies
+  start.bat         — Windows startup script
 frontend/
-  src/
-    App.jsx          # Main layout (3-column grid)
-    main.jsx         # Entry point
-    hooks/useWebSocket.js
-    components/
-      PriceChart.jsx   # lightweight-charts + markers
-      FlowPanel.jsx    # Delta, cum delta, imbalance
-      BubbleTape.jsx   # Large trade stream
-      Heatmap.jsx      # Order book visualization (canvas)
-      Footprint.jsx    # Volume profile per candle (canvas)
-      StatusBar.jsx    # Top bar with live price + metrics
-    utils/format.js
+  App.jsx           — Main layout
+  hooks/useWebSocket.js — WS connection with auto-reconnect
+  components/
+    PriceChart.jsx   — Candlestick + trade markers
+    FlowPanel.jsx    — Flow metrics panel
+    BubbleTape.jsx   — Large trade bubbles
+    Heatmap.jsx      — Order book heatmap (Canvas)
+    Footprint.jsx    — Volume clusters (Canvas)
+    StatusBar.jsx    — Top status bar
+  utils/format.js   — Number formatting
 ```
 
-## Configuration
+## License
 
-In `metrics.py`:
-- `LARGE_TRADE_THRESHOLD = 0.5` BTC — what counts as a "large trade"
-- `ROLLING_WINDOW = 300` seconds for frequency calculation
-- `MAX_FOOTPRINT_CANDLES = 60` kept in memory
-
-## Phase Roadmap
-
-- [x] Phase 1: Live data foundation (price, trades, delta, heatmap)
-- [ ] Phase 2: Flow metrics (absorption, delta divergence, exhaustion labels)
-- [ ] Phase 3: Session context (Asia/London/NY ranges, sweeps)
-- [ ] Phase 4: News/events panel (macro calendar, countdown)
-- [ ] Phase 5: Advanced (liquidation tracking, breakout quality assessment)
+MIT

@@ -1,6 +1,5 @@
-node_modules/
-dist/
+backend/venv/
+frontend/node_modules/
+frontend/package-lock.json
 __pycache__/
 *.pyc
-.venv/
-*.log

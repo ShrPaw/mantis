@@ -1,17 +1,29 @@
 """
 Binance Futures WebSocket streams for BTCUSDT microstructure data.
 Uses the subscribe method on a single connection for reliability.
+
+Proxy support:
+  Set environment variable before running:
+    set HTTPS_PROXY=socks5://127.0.0.1:1080     (Windows CMD)
+    $env:HTTPS_PROXY="socks5://127.0.0.1:1080"  (PowerShell)
+    export HTTPS_PROXY=socks5://127.0.0.1:1080  (Linux/Mac)
+
+  For SOCKS5 proxies, also install: pip install python-socks[asyncio]
 """
 
 import asyncio
 import json
 import logging
+import os
 from typing import Callable
 import websockets
 
 logger = logging.getLogger(__name__)
 
 BINANCE_WS_URL = "wss://fstream.binance.com/ws"
+
+# Proxy config — reads from environment variable
+PROXY_URL = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or os.environ.get("ALL_PROXY")
 
 
 class BinanceStreamManager:
@@ -46,14 +58,40 @@ class BinanceStreamManager:
     async def start(self):
         """Connect and subscribe to all streams with auto-reconnect."""
         self._running = True
+
+        # Build connection kwargs
+        connect_kwargs = {
+            "ping_interval": 20,
+            "ping_timeout": 10,
+            "close_timeout": 5,
+        }
+
+        # Add proxy if configured
+        if PROXY_URL:
+            try:
+                from websockets.asyncio.client import connect as ws_connect
+                # websockets >= 14 supports proxy via extra_headers or native proxy
+                # For SOCKS5, use python-socks
+                if PROXY_URL.startswith("socks"):
+                    from python_socks.async_.asyncio.v2 import Proxy
+                    proxy = Proxy.from_url(PROXY_URL)
+                    connect_kwargs["proxy"] = proxy
+                    logger.info(f"Using SOCKS proxy: {PROXY_URL}")
+                else:
+                    # HTTP proxy — websockets supports this natively in newer versions
+                    connect_kwargs["proxy"] = PROXY_URL
+                    logger.info(f"Using HTTP proxy: {PROXY_URL}")
+            except ImportError as e:
+                logger.warning(
+                    f"Proxy import failed ({e}). Install: pip install python-socks[asyncio]"
+                )
+                logger.warning("Attempting direct connection...")
+        else:
+            logger.info("No proxy configured (set HTTPS_PROXY env var if needed)")
+
         while self._running:
             try:
-                async with websockets.connect(
-                    BINANCE_WS_URL,
-                    ping_interval=20,
-                    ping_timeout=10,
-                    close_timeout=5,
-                ) as ws:
+                async with websockets.connect(BINANCE_WS_URL, **connect_kwargs) as ws:
                     # Subscribe to all streams
                     sub_msg = {
                         "method": "SUBSCRIBE",
