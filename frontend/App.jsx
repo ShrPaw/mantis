@@ -16,6 +16,7 @@ export default function App() {
   const [largeTrades, setLargeTrades] = useState([])
   const [absorption, setAbsorption] = useState([])
   const [trades, setTrades] = useState([])
+  const [candles, setCandles] = useState([])
 
   const { connected, on } = useWebSocket(WS_URL)
 
@@ -27,6 +28,7 @@ export default function App() {
       setFootprints(data.footprints)
       setLargeTrades(data.large_trades)
       setAbsorption(data.absorption)
+      if (data.candles) setCandles(data.candles)
     })
     on('flow_metrics', setFlow)
     on('heatmap', setHeatmap)
@@ -46,8 +48,8 @@ export default function App() {
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.title}>
-          <span style={styles.symbol}>BTCUSDT</span>
-          <span style={styles.sub}>MICROSTRUCTURE</span>
+          <span style={styles.symbol}>BTC</span>
+          <span style={styles.sub}>MICROSTRUCTURE · HYPERLIQUID</span>
         </div>
         <StatusBar connected={connected} flow={flow} />
       </div>
@@ -62,7 +64,7 @@ export default function App() {
         {/* Center: Chart + Footprint */}
         <div style={styles.centerPanel}>
           <div style={styles.chartArea}>
-            <PriceChart trades={trades} flow={flow} />
+            <PriceChart trades={trades} flow={flow} candles={candles} />
           </div>
           <div style={styles.footprintArea}>
             <Footprint data={footprints} />

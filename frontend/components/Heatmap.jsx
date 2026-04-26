@@ -57,14 +57,14 @@ export default function Heatmap({ data }) {
       const w = (bid.qty / maxQty) * (W - 80)
 
       // Background bar
-      ctx.fillStyle = 'rgba(0, 230, 118, 0.08)'
+      ctx.fillStyle = 'rgba(0, 200, 83, 0.12)'
       ctx.fillRect(60, y, w, rowH - 2)
 
       // Border glow for large orders
       if (bid.qty > maxQty * 0.5) {
-        ctx.shadowColor = '#00e676'
-        ctx.shadowBlur = 8
-        ctx.fillStyle = 'rgba(0, 230, 118, 0.2)'
+        ctx.shadowColor = '#00c853'
+        ctx.shadowBlur = 12
+        ctx.fillStyle = 'rgba(0, 200, 83, 0.3)'
         ctx.fillRect(60, y, w, rowH - 2)
         ctx.shadowBlur = 0
       }
@@ -87,13 +87,13 @@ export default function Heatmap({ data }) {
       const y = midY + 8 + i * rowH
       const w = (ask.qty / maxQty) * (W - 80)
 
-      ctx.fillStyle = 'rgba(255, 23, 68, 0.08)'
+      ctx.fillStyle = 'rgba(255, 23, 68, 0.12)'
       ctx.fillRect(60, y, w, rowH - 2)
 
       if (ask.qty > maxQty * 0.5) {
         ctx.shadowColor = '#ff1744'
-        ctx.shadowBlur = 8
-        ctx.fillStyle = 'rgba(255, 23, 68, 0.2)'
+        ctx.shadowBlur = 12
+        ctx.fillStyle = 'rgba(255, 23, 68, 0.3)'
         ctx.fillRect(60, y, w, rowH - 2)
         ctx.shadowBlur = 0
       }

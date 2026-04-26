@@ -1,25 +1,27 @@
 import { useEffect, useRef } from 'react'
 import { createChart, CrosshairMode } from 'lightweight-charts'
 
-export default function PriceChart({ trades, flow }) {
+export default function PriceChart({ trades, flow, candles }) {
   const containerRef = useRef(null)
   const chartRef = useRef(null)
   const seriesRef = useRef(null)
   const candleRef = useRef({ open: 0, high: 0, low: Infinity, close: 0, time: 0 })
   const bubblesRef = useRef([])
+  const loadedRef = useRef(false)
 
+  // Init chart
   useEffect(() => {
     if (!containerRef.current) return
 
     const chart = createChart(containerRef.current, {
       layout: {
         background: { color: '#0a0a0f' },
-        textColor: '#555',
+        textColor: '#444',
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: '#111' },
-        horzLines: { color: '#111' },
+        vertLines: { color: '#111118' },
+        horzLines: { color: '#111118' },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
@@ -28,7 +30,7 @@ export default function PriceChart({ trades, flow }) {
       },
       rightPriceScale: {
         borderColor: '#1a1a2e',
-        scaleMargins: { top: 0.1, bottom: 0.1 },
+        scaleMargins: { top: 0.05, bottom: 0.05 },
       },
       timeScale: {
         borderColor: '#1a1a2e',
@@ -38,12 +40,12 @@ export default function PriceChart({ trades, flow }) {
     })
 
     const series = chart.addCandlestickSeries({
-      upColor: '#00e676',
+      upColor: '#00c853',
       downColor: '#ff1744',
-      borderUpColor: '#00e676',
+      borderUpColor: '#00c853',
       borderDownColor: '#ff1744',
-      wickUpColor: '#00e676',
-      wickDownColor: '#ff1744',
+      wickUpColor: '#00c85380',
+      wickDownColor: '#ff174480',
     })
 
     chartRef.current = chart
@@ -63,16 +65,44 @@ export default function PriceChart({ trades, flow }) {
     }
   }, [])
 
-  // Update candles from trade stream
+  // Load historical candles
+  useEffect(() => {
+    if (!seriesRef.current || !candles || !candles.length || loadedRef.current) return
+    loadedRef.current = true
+
+    const formatted = candles.map(c => ({
+      time: c.time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }))
+
+    seriesRef.current.setData(formatted)
+
+    // Set current candle state to last historical candle
+    const last = candles[candles.length - 1]
+    candleRef.current = {
+      time: last.time,
+      open: last.open,
+      high: last.high,
+      low: last.low,
+      close: last.close,
+    }
+
+    // Scroll to latest
+    chartRef.current?.timeScale().scrollToRealTime()
+  }, [candles])
+
+  // Update candles from live trade stream
   useEffect(() => {
     if (!seriesRef.current || !trades.length) return
 
-    const trade = trades[0] // newest
+    const trade = trades[0]
     const candleOpen = Math.floor(trade.timestamp / 60) * 60
     const c = candleRef.current
 
     if (candleOpen !== c.time) {
-      // New candle — commit previous
       if (c.time > 0 && c.open > 0) {
         seriesRef.current.update({
           time: c.time,
@@ -93,7 +123,6 @@ export default function PriceChart({ trades, flow }) {
       c.close = trade.price
     }
 
-    // Live update current candle
     seriesRef.current.update({
       time: c.time,
       open: c.open,
@@ -107,12 +136,14 @@ export default function PriceChart({ trades, flow }) {
   useEffect(() => {
     if (!seriesRef.current || !trades.length) return
     const trade = trades[0]
+    if (!trade.qty || trade.qty < 0.5) return
+
     const marker = {
       time: Math.floor(trade.timestamp / 60) * 60,
       position: trade.side === 'buy' ? 'belowBar' : 'aboveBar',
-      color: trade.side === 'buy' ? '#00e676' : '#ff1744',
+      color: trade.side === 'buy' ? '#00c853' : '#ff1744',
       shape: trade.side === 'buy' ? 'arrowUp' : 'arrowDown',
-      text: `${trade.qty.toFixed(2)} BTC`,
+      text: `${trade.qty.toFixed(2)}`,
       size: trade.qty > 2 ? 3 : trade.qty > 1 ? 2 : 1,
     }
     bubblesRef.current.push(marker)
