@@ -104,6 +104,7 @@ export function PriceChart() {
     };
 
     chartRef.current?.timeScale().scrollToRealTime();
+    chartRef.current?.timeScale().fitContent();
   }, [candles]);
 
   // Update live candle from flow changes

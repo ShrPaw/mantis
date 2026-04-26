@@ -32,44 +32,42 @@ export default function App() {
         <StatusBar connected={connected} flow={flow} />
       </header>
 
-      {/* Main Grid */}
-      <div style={styles.grid}>
+      {/* Main Content Area */}
+      <div style={styles.main}>
         {/* Left Column: Flow + Micro */}
-        <aside style={styles.leftCol}>
+        <div style={styles.leftCol}>
           <FlowPanel />
           <MicroPanel />
-        </aside>
+        </div>
 
-        {/* Center: Chart + Footprint */}
-        <main style={styles.center}>
-          <div style={styles.chartArea}>
+        {/* Center Column: Chart + Footprint + Tape */}
+        <div style={styles.centerCol}>
+          <div style={styles.chartWrap}>
             <PriceChart />
           </div>
-          <div style={styles.footprintArea}>
+          <div style={styles.footprintWrap}>
             <Footprint />
           </div>
-        </main>
+          <div style={styles.tapeWrap}>
+            <TradeTape />
+          </div>
+        </div>
 
         {/* Right Column: Heatmap + Bubbles */}
-        <aside style={styles.rightCol}>
-          <div style={styles.heatmapArea}>
+        <div style={styles.rightCol}>
+          <div style={styles.heatmapWrap}>
             <Heatmap />
           </div>
-          <div style={styles.bubbleArea}>
+          <div style={styles.bubbleWrap}>
             <BubbleTape />
           </div>
-        </aside>
+        </div>
 
-        {/* Bottom: Trade Tape */}
-        <footer style={styles.bottom}>
-          <TradeTape />
-        </footer>
-
-        {/* Far Right: Sessions + News */}
-        <aside style={styles.farRight}>
+        {/* Far Right Column: Sessions + News */}
+        <div style={styles.farRightCol}>
           <SessionContext />
           <NewsPanel />
-        </aside>
+        </div>
       </div>
     </div>
   );
@@ -114,7 +112,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 9,
     color: '#555',
     letterSpacing: 3,
-    textTransform: 'uppercase',
+    textTransform: 'uppercase' as const,
   },
   source: {
     fontSize: 8,
@@ -124,68 +122,74 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #1a1a2e',
     borderRadius: 3,
   },
-  grid: {
+  // 4-column horizontal layout
+  main: {
     flex: 1,
-    display: 'grid',
-    gridTemplateColumns: '220px 1fr 280px 200px',
-    gridTemplateRows: '1fr 160px',
-    gap: 1,
-    background: '#1a1a2e',
+    display: 'flex',
+    flexDirection: 'row',
     overflow: 'hidden',
+    minHeight: 0,
   },
   leftCol: {
-    gridRow: '1 / 3',
+    width: 220,
+    flexShrink: 0,
     background: '#0d0d14',
+    borderRight: '1px solid #1a1a2e',
     overflow: 'auto',
     display: 'flex',
     flexDirection: 'column',
   },
-  center: {
+  centerCol: {
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
     background: '#0a0a0f',
     overflow: 'hidden',
+    minWidth: 0,
   },
-  chartArea: {
+  chartWrap: {
     flex: 1,
     minHeight: 0,
     position: 'relative',
   },
-  footprintArea: {
+  footprintWrap: {
     height: 200,
-    borderTop: '1px solid #1a1a2e',
     flexShrink: 0,
+    borderTop: '1px solid #1a1a2e',
+  },
+  tapeWrap: {
+    height: 140,
+    flexShrink: 0,
+    borderTop: '1px solid #1a1a2e',
+    background: '#0d0d14',
   },
   rightCol: {
-    gridRow: '1 / 3',
-    display: 'flex',
-    flexDirection: 'column',
-    background: '#0d0d14',
-    overflow: 'hidden',
-  },
-  heatmapArea: {
-    flex: 1,
-    overflow: 'hidden',
-    minHeight: 0,
-  },
-  bubbleArea: {
-    height: 260,
-    borderTop: '1px solid #1a1a2e',
-    overflow: 'auto',
+    width: 280,
     flexShrink: 0,
-  },
-  bottom: {
-    gridColumn: '2 / 3',
     background: '#0d0d14',
-    borderTop: '1px solid #1a1a2e',
-    overflow: 'hidden',
-  },
-  farRight: {
-    gridRow: '1 / 3',
+    borderLeft: '1px solid #1a1a2e',
+    borderRight: '1px solid #1a1a2e',
     display: 'flex',
     flexDirection: 'column',
-    background: '#0d0d14',
+    overflow: 'hidden',
+  },
+  heatmapWrap: {
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+  },
+  bubbleWrap: {
+    height: 260,
+    flexShrink: 0,
+    borderTop: '1px solid #1a1a2e',
     overflow: 'auto',
-    borderLeft: '1px solid #1a1a2e',
+  },
+  farRightCol: {
+    width: 200,
+    flexShrink: 0,
+    background: '#0d0d14',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'auto',
   },
 };
