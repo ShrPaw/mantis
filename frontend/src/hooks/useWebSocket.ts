@@ -1,7 +1,7 @@
 // MANTIS Dashboard — WebSocket connection with auto-reconnect
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store';
-import type { LargeTrade } from '../types';
+import type { LargeTrade, MarketEvent } from '../types';
 
 const RECONNECT_DELAY = 1000;
 const PING_INTERVAL = 15000;
@@ -14,6 +14,7 @@ export function useWebSocket() {
   const {
     setConnected, setFlow, setHeatmap, setFootprints,
     setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro,
+    addEvents, setEventStats,
   } = useStore();
 
   const connect = useCallback(() => {
@@ -31,7 +32,6 @@ export function useWebSocket() {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        const store = useStore.getState();
 
         switch (msg.type) {
           case 'init':
@@ -39,14 +39,12 @@ export function useWebSocket() {
             break;
           case 'flow_metrics': {
             setFlow(msg.data);
-            // Update microstructure analysis
             const s = useStore.getState();
             updateMicro(msg.data, s.absorption, s.heatmap);
             break;
           }
           case 'heatmap': {
             setHeatmap(msg.data);
-            // Update microstructure on heatmap change
             const s = useStore.getState();
             updateMicro(s.flow, s.absorption, msg.data);
             break;
@@ -66,6 +64,15 @@ export function useWebSocket() {
             addTradeTape(trade);
             break;
           }
+          case 'event_detected': {
+            const evts = Array.isArray(msg.data) ? msg.data : [msg.data];
+            addEvents(evts as MarketEvent[]);
+            break;
+          }
+          case 'event_stats': {
+            setEventStats(msg.data);
+            break;
+          }
           case 'pong':
             break;
         }
@@ -81,7 +88,7 @@ export function useWebSocket() {
     };
 
     ws.onerror = () => ws.close();
-  }, [setConnected, setFlow, setHeatmap, setFootprints, setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro]);
+  }, [setConnected, setFlow, setHeatmap, setFootprints, setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro, addEvents, setEventStats]);
 
   useEffect(() => {
     connect();

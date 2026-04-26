@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import type {
   FlowMetrics, HeatmapData, FootprintCandle, LargeTrade,
   AbsorptionZone, Candle, MicrostructureState,
+  MarketEvent, EventStats, EventFilter,
 } from './types';
 
 interface DashboardState {
@@ -24,6 +25,11 @@ interface DashboardState {
   // Microstructure analysis
   micro: MicrostructureState;
 
+  // Event Engine
+  events: MarketEvent[];
+  eventStats: EventStats;
+  eventFilter: EventFilter | null;
+
   // Actions
   setFlow: (f: FlowMetrics) => void;
   setHeatmap: (h: HeatmapData) => void;
@@ -34,6 +40,11 @@ interface DashboardState {
   addTradeTape: (t: LargeTrade) => void;
   setInitData: (d: any) => void;
   updateMicro: (flow: FlowMetrics, absorption: AbsorptionZone[], heatmap: HeatmapData) => void;
+
+  // Event actions
+  addEvents: (evts: MarketEvent[]) => void;
+  setEventStats: (s: EventStats) => void;
+  setEventFilter: (f: EventFilter | null) => void;
 }
 
 const defaultFlow: FlowMetrics = {
@@ -47,6 +58,13 @@ const defaultMicro: MicrostructureState = {
   absorptionProxy: [],
   liquidityPulls: [],
   breakoutStrength: { detected: false, direction: null, volume_confirmed: false, price: 0, delta: 0 },
+};
+
+const defaultEventStats: EventStats = {
+  total: 0, by_type: {}, by_side: {},
+  avg_strength: 0, avg_confidence: 0,
+  measured_count: 0, unmeasured_count: 0,
+  fired: 0, deduped: 0, pending_outcomes: 0,
 };
 
 // Track previous heatmap for liquidity pull detection
@@ -168,6 +186,11 @@ export const useStore = create<DashboardState>((set, get) => ({
   tradeTape: [],
   micro: defaultMicro,
 
+  // Event Engine state
+  events: [],
+  eventStats: defaultEventStats,
+  eventFilter: null,
+
   setFlow: (f) => set({ flow: f }),
   setHeatmap: (h) => set({ heatmap: h }),
   setFootprints: (f) => set({ footprints: f }),
@@ -190,10 +213,19 @@ export const useStore = create<DashboardState>((set, get) => ({
       largeTrades: d.large_trades || [],
       absorption: d.absorption || [],
       candles: d.candles || [],
+      events: d.events || [],
+      eventStats: d.event_stats || defaultEventStats,
     });
   },
 
   updateMicro: (flow, absorption, heatmap) => {
     set({ micro: computeMicro(flow, absorption, heatmap) });
   },
+
+  // Event actions
+  addEvents: (evts) => set(s => ({
+    events: [...evts, ...s.events].slice(0, 500),
+  })),
+  setEventStats: (stats) => set({ eventStats: stats }),
+  setEventFilter: (filter) => set({ eventFilter: filter }),
 }));
