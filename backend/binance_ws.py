@@ -20,7 +20,7 @@ import websockets
 
 logger = logging.getLogger(__name__)
 
-BINANCE_WS_URL = "wss://fstream.binance.com/ws"
+BINANCE_WS_URL = "wss://stream.binance.com:9443/ws"
 
 # Proxy config — reads from environment variable
 PROXY_URL = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or os.environ.get("ALL_PROXY")
