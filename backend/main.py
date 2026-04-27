@@ -314,6 +314,42 @@ async def health():
     return result
 
 
+@app.get("/events/export")
+async def events_export():
+    """
+    Export all events with current forward outcomes to JSONL.
+    This is the file the validation script should read — it includes
+    outcome data that the initial JSONL snapshot does not.
+    """
+    if event_mgr is None:
+        return {"status": "event_engine_disabled"}
+
+    try:
+        events = event_mgr.get_events(limit=1000)
+        export_path = "data/events/events_with_outcomes.jsonl"
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        with open(export_path, "w") as f:
+            for evt in events:
+                f.write(json.dumps(evt) + "\n")
+        return {"status": "ok", "exported": len(events), "path": export_path}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@app.get("/events")
+async def events_list(limit: int = 20):
+    """Return recent events as JSON (for debugging)."""
+    if event_mgr is None:
+        return {"events": [], "stats": {}}
+    try:
+        return {
+            "events": event_mgr.get_events(limit=limit),
+            "stats": event_mgr.get_event_stats(),
+        }
+    except Exception:
+        return {"events": [], "stats": {}}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)

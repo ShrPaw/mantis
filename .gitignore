@@ -4,3 +4,6 @@ frontend/package-lock.json
 __pycache__/
 *.pyc
 frontend/dist/
+backend/data/
+backend/mantis_events.log
+backend/nohup.out
