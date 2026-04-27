@@ -21,6 +21,9 @@ Rules are structural, not tuned. Based on market mechanics:
   - Shorts fail in: uptrend pullbacks, compression at low
   - Longs work in: uptrend pullbacks, absorption at low, sweep of low
   - Longs fail in: downtrend rallies, exhaustion at high
+
+SHADOW MODE: Blacklist/watchlist metadata is handled by the manager.
+This module does NOT enforce blacklist. All events pass on directional merit.
 """
 
 from .config import EventEngineConfig
@@ -30,41 +33,23 @@ class DirectionalBias:
     """
     Post-detection filter + score modifier for directional events.
 
-    BLACKLIST enforcement:
-      - Blacklisted event types are ALWAYS suppressed.
-      - They are still logged (the manager handles that).
-      - They never pass this filter.
-      - They never boost confidence or score.
-
-    WATCHLIST:
-      - Watchlist events pass the filter normally.
-      - Snapshot capture is handled by the manager, not here.
+    SHADOW MODE — Blacklist/Watchlist:
+      - Blacklist/watchlist metadata is handled by the manager.
+      - This filter does NOT block events based on blacklist status.
+      - All events pass the directional filter on their own merits.
+      - No score capping based on blacklist.
     """
 
     def __init__(self, config: EventEngineConfig):
         self.config = config
-        self._blacklist = config.blacklist.event_types
-
-    def is_blacklisted(self, event_type: str, side: str) -> bool:
-        """Check if this event type+side is blacklisted."""
-        # Match on event_type or side containing blacklisted keywords
-        for bl in self._blacklist:
-            if bl in event_type or bl in side:
-                return True
-        return False
 
     def should_allow_event(self, event_type: str, side: str,
                            regime: str, regime_details: dict,
                            context) -> tuple[bool, str]:
         """
         Gate: should this event be allowed to fire?
-
-        BLACKLIST is checked FIRST. Blacklisted events are always suppressed.
+        Directional filter only. No blacklist enforcement.
         """
-        # ── BLACKLIST CHECK (highest priority) ──────────────
-        if self.is_blacklisted(event_type, side):
-            return False, f"blacklisted:{event_type}:{side}"
-
         is_sell_side = self._is_sell_side(side)
 
         if not is_sell_side:
@@ -77,13 +62,8 @@ class DirectionalBias:
                      context) -> float:
         """
         Score modifier: adjust composite score based on directional alignment.
-
-        BLACKLIST enforcement: blacklisted events are capped at max_composite_score.
+        No blacklist enforcement. All events scored on directional merit.
         """
-        # Blacklisted events get minimum score
-        if self.is_blacklisted(event_type, side):
-            return min(composite_score, self.config.blacklist.max_composite_score)
-
         is_sell_side = self._is_sell_side(side)
         multiplier = 1.0
         
@@ -127,7 +107,8 @@ class DirectionalBias:
             return True, f"short_allowed:bearish_regime={regime}"
         
         # Rule 2: Structural short events (always allowed in any regime)
-        # NOTE: "exhaustion" REMOVED — sell_exhaustion is blacklisted (forensic audit)
+        # NOTE: "exhaustion" excluded — forensic audit found sell_exhaustion
+        # fires on selling climax (inverted logic). Not structurally sound.
         structural_short_events = {
             "absorption",      # sell_absorption = buy aggression absorbed
             "liquidity_sweep", # high_sweep = stop hunt, reversal

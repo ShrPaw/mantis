@@ -3,13 +3,13 @@ MANTIS Event Engine — Event Manager
 Orchestrates all detectors, scoring, dedup, logging, and outcome tracking.
 Single entry point: on_trade(), on_book(), on_large_trade().
 
-BLACKLIST enforcement:
-  - sell_exhaustion, sell_imbalance, sell_cluster
-  - Still logged, never boost score, never tradeable.
-
-WATCHLIST:
-  - sell_absorption, down_break, up_break
-  - Full snapshot capture for candidate tracking.
+SHADOW MODE — Blacklist/Watchlist:
+  - Blacklisted event types: sell_exhaustion, sell_imbalance, sell_cluster
+  - Watchlisted event types: sell_absorption, down_break, up_break
+  - ALL events flow through the original live pipeline unchanged.
+  - Blacklist/watchlist tags are SHADOW METADATA ONLY (diagnostic).
+  - No score capping, no filtering, no blocking in production.
+  - Candidate snapshots captured in parallel for validation.
 """
 
 import logging
@@ -90,25 +90,22 @@ class EventManager:
             except Exception as e:
                 logger.error(f"Detector {detector.event_type} error: {e}")
 
-        # Score, dedup, log — with blacklist/watchlist enforcement
+        # Score, dedup, log — all events flow through unchanged
         new_events = []
         for event in all_events:
-            # ── BLACKLIST CHECK ─────────────────────────────
+            # ── SHADOW METADATA (diagnostic only, does NOT affect pipeline) ──
             if self.bw_manager.check_blacklisted(event):
-                # Still log for diagnostics, but cap score
-                self.bw_manager.log_blacklisted(event)
-                self.outcomes.register(event, price)
-                self.logger.log(event)
+                event.event_type_blacklisted = True
+                event.blacklist_reason = f"blacklisted:{event.event_type}:{event.side}"
+                event.shadow_tradeable_allowed = False
+                self.bw_manager.log_shadow_blacklisted(event)
                 self._events_blacklisted += 1
-                # Do NOT add to tradeable history
-                continue
 
-            # ── WATCHLIST CHECK ─────────────────────────────
             if self.bw_manager.check_watchlisted(event):
+                event.event_type_watchlisted = True
+                event.watchlist_reason = f"watchlisted:{event.event_type}:{event.side}"
                 self.bw_manager.capture_snapshot(event)
                 self._events_watchlisted += 1
-                # Watchlist events ARE still processed normally
-                # (logged, scored, tracked) — they are candidates
 
             # Dedup check
             if not self.dedup.should_fire(event):
@@ -133,9 +130,12 @@ class EventManager:
         if self._events_fired % 100 == 0:
             self.dedup.cleanup(timestamp)
             self.logger.flush()
-            # Export watchlist snapshots periodically
+            # Export shadow snapshots periodically (parallel logging)
             self.bw_manager.export_watchlist_csv(
                 self.config.watchlist.snapshot_path
+            )
+            self.bw_manager.export_blacklist_report_csv(
+                self.config.watchlist.snapshot_path.replace("candidate_watchlist", "blacklist_watchlist_report")
             )
 
         return [e.to_dict() for e in new_events]
@@ -214,8 +214,11 @@ class EventManager:
         return [e.to_dict() for e in active[-limit:]]
 
     def flush(self):
-        """Force flush logger and export watchlist."""
+        """Force flush logger and export shadow snapshots."""
         self.logger.flush()
         self.bw_manager.export_watchlist_csv(
             self.config.watchlist.snapshot_path
+        )
+        self.bw_manager.export_blacklist_report_csv(
+            self.config.watchlist.snapshot_path.replace("candidate_watchlist", "blacklist_watchlist_report")
         )

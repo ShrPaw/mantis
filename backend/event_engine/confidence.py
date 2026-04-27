@@ -13,6 +13,9 @@ Add new components:
   4. event_reliability — historical reliability of this event type
 
 All components are 0-1 and explainable. No ML, no overfitting.
+
+SHADOW MODE: No blacklist enforcement. All events scored on structural merit.
+Blacklist/watchlist metadata is handled by the manager layer.
 """
 
 
@@ -77,15 +80,11 @@ class ConfidenceEngine:
         "event_reliability": 0.20,
     }
 
-    # Blacklisted event types: reliability capped at this value
-    # These events are structurally unsound per forensic audit
-    BLACKLISTED_TYPES = {"exhaustion"}  # sell_exhaustion specifically
-    BLACKLISTED_RELIABILITY_CAP = 0.10
-
     def score(self, event_type: str, side: str, regime: str,
               price: float, buffer, session) -> dict:
         """
         Compute confidence score and components.
+        No blacklist enforcement. All events scored on structural merit.
         
         Returns dict with:
           confidence_score: float (0-1)
@@ -103,13 +102,8 @@ class ConfidenceEngine:
         # Component 3: Flow consistency
         flow_consist = self._flow_consistency(buffer, direction)
         
-        # Component 4: Event reliability
-        # BLACKLIST enforcement: sell_exhaustion gets capped reliability
-        is_sell = self._is_sell_side(side)
-        if is_sell and event_type in self.BLACKLISTED_TYPES:
-            event_rel = self.BLACKLISTED_RELIABILITY_CAP
-        else:
-            event_rel = self.EVENT_RELIABILITY.get(event_type, 0.50)
+        # Component 4: Event reliability — no blacklist cap
+        event_rel = self.EVENT_RELIABILITY.get(event_type, 0.50)
         
         components = {
             "regime_alignment": regime_align,

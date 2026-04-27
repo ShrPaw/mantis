@@ -114,6 +114,13 @@ class MicrostructureEvent:
     is_active: bool = True
     merged_into: Optional[str] = None  # event_id if merged
 
+    # Shadow metadata — diagnostic only, does NOT affect live pipeline
+    event_type_blacklisted: bool = False
+    event_type_watchlisted: bool = False
+    blacklist_reason: str = ""
+    watchlist_reason: str = ""
+    shadow_tradeable_allowed: bool = True  # False only if blacklisted
+
     def __post_init__(self):
         if not self.event_id:
             self.event_id = uuid.uuid4().hex[:12]
@@ -137,6 +144,11 @@ class MicrostructureEvent:
             "explanation": self.explanation,
             "is_active": self.is_active,
             "merged_into": self.merged_into,
+            "event_type_blacklisted": self.event_type_blacklisted,
+            "event_type_watchlisted": self.event_type_watchlisted,
+            "blacklist_reason": self.blacklist_reason,
+            "watchlist_reason": self.watchlist_reason,
+            "shadow_tradeable_allowed": self.shadow_tradeable_allowed,
         }
 
     def strength_pct(self) -> int:

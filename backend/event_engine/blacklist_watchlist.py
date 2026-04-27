@@ -1,20 +1,21 @@
 """
-MANTIS Event Engine — Blacklist / Watchlist Enforcement Layer
+MANTIS Event Engine — Blacklist / Watchlist SHADOW Layer
 
-Sits alongside the production EventManager. Does NOT modify detectors.
+Diagnostic metadata only. Does NOT modify detectors.
 Does NOT change production scoring or filtering.
+Does NOT block events from the live pipeline.
 
-Blacklist:
+Blacklist (shadow metadata):
   - sell_exhaustion, sell_imbalance, sell_cluster
-  - Still logged. Never boost score. Never pass filter. Never tradeable.
+  - Tagged for diagnostics. Scores and pipeline UNCHANGED.
 
-Watchlist:
+Watchlist (shadow metadata + parallel snapshots):
   - sell_absorption, down_break, up_break
   - Full snapshot capture (price/delta/CVD/volume paths)
-  - Forward outcome tracking
+  - Forward outcome tracking for validation
 
-This module is the SINGLE source of truth for blacklist/watchlist logic.
-DirectionalBias and ConfidenceEngine import from here for consistency.
+This module is the SINGLE source of truth for blacklist/watchlist metadata.
+Events still flow through the original live pipeline unchanged.
 """
 
 import csv
@@ -84,20 +85,27 @@ def is_watchlisted(event_type: str, side: str) -> bool:
 
 class BlacklistWatchlistManager:
     """
-    Enforcement layer for blacklist and watchlist.
+    Shadow metadata layer for blacklist and watchlist.
+    Does NOT enforce. Does NOT block. Does NOT cap scores.
+    Tags events with diagnostic metadata and captures parallel snapshots.
 
-    Usage in manager.py (shadow integration):
+    Usage in manager.py (shadow-only):
       self.bw_manager = BlacklistWatchlistManager(self.config, self.ctx)
 
     Then in on_trade(), after event detection:
       for event in all_events:
-          if self.bw_manager.is_blacklisted(event):
-              # Log but do not score/filter as tradeable
-              self.bw_manager.log_blacklisted(event)
-              continue
+          # Shadow metadata tagging (does NOT affect pipeline)
+          if self.bw_manager.check_blacklisted(event):
+              event.event_type_blacklisted = True
+              event.blacklist_reason = f"blacklisted:{event.event_type}:{event.side}"
+              event.shadow_tradeable_allowed = False
+              self.bw_manager.log_shadow_blacklisted(event)
 
-          if self.bw_manager.is_watchlisted(event):
+          if self.bw_manager.check_watchlisted(event):
+              event.event_type_watchlisted = True
               self.bw_manager.capture_snapshot(event)
+
+          # Event continues through normal pipeline regardless
     """
 
     def __init__(self, config: EventEngineConfig, ctx: EngineContext):
@@ -119,30 +127,23 @@ class BlacklistWatchlistManager:
         """Is this event blacklisted?"""
         return is_blacklisted(event.event_type, event.side)
 
-    def log_blacklisted(self, event: MicrostructureEvent):
+    def log_shadow_blacklisted(self, event: MicrostructureEvent):
         """
-        Log a blacklisted event. It is still recorded for diagnostics,
-        but with a BLACKLISTED tag and capped score.
+        Log a blacklisted event for SHADOW diagnostics only.
+        Does NOT cap score, does NOT modify confidence, does NOT block.
+        Event flows through the live pipeline unchanged.
         """
         self._blacklisted_count += 1
         self._blacklisted_by_type[f"{event.event_type}:{event.side}"] += 1
 
-        # Tag the event
-        event.validation_tags.append("BLACKLISTED")
+        # Tag the event (diagnostic only)
+        event.validation_tags.append("SHADOW_BLACKLISTED")
 
-        # Cap the composite score
-        max_score = self.config.blacklist.max_composite_score
-        if event.scores.composite_score > max_score:
-            event.scores.composite_score = max_score
+        # NOTE: No score capping. No confidence modification.
+        # Event is processed normally by the live pipeline.
 
-        # Cap reliability in confidence components
-        if "event_reliability" in event.scores.confidence_components:
-            event.scores.confidence_components["event_reliability"] = \
-                min(event.scores.confidence_components["event_reliability"],
-                    self.config.blacklist.reliability_cap)
-
-        logger.debug(f"Blacklisted event: {event.event_type}:{event.side} "
-                     f"(score capped to {max_score})")
+        logger.debug(f"Shadow blacklisted event: {event.event_type}:{event.side} "
+                     f"(diagnostic tag only, no enforcement)")
 
     # ── Watchlist ───────────────────────────────────────────
 
@@ -313,6 +314,21 @@ class BlacklistWatchlistManager:
                 writer.writerow(row)
 
         logger.info(f"Watchlist exported {len(self._snapshots)} snapshots to {path}")
+
+    def export_blacklist_report_csv(self, path: str):
+        """Export blacklisted event diagnostics to a separate CSV."""
+        if not self._blacklisted_by_type:
+            return
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+        fields = ["event_type_side", "count"]
+        with open(path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fields)
+            writer.writeheader()
+            for key, count in sorted(self._blacklisted_by_type.items()):
+                writer.writerow({"event_type_side": key, "count": count})
+
+        logger.info(f"Blacklist report exported {len(self._blacklisted_by_type)} entries to {path}")
 
     def export_blacklist_stats(self) -> dict:
         """Return blacklist enforcement statistics."""
