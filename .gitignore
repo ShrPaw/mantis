@@ -5,5 +5,7 @@ __pycache__/
 *.pyc
 frontend/dist/
 backend/data/
+data/
 backend/mantis_events.log
 backend/nohup.out
+*.jsonl

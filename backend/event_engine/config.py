@@ -127,6 +127,45 @@ class OutcomeConfig:
 
 
 @dataclass
+class BlacklistConfig:
+    """
+    Blacklisted event types: still logged, never boost score,
+    never pass directional filter, never trigger tradeable state.
+    """
+    event_types: set = field(default_factory=lambda: {
+        "sell_exhaustion",
+        "sell_imbalance",
+        "sell_cluster",
+    })
+    # Blacklisted events get this reliability cap in confidence scoring
+    reliability_cap: float = 0.10
+    # Blacklisted events get this maximum composite score
+    max_composite_score: float = 0.15
+
+
+@dataclass
+class WatchlistConfig:
+    """
+    Candidate watchlist: events tracked with full snapshots.
+    Not tradeable. Diagnostic/observation only.
+    """
+    event_types: set = field(default_factory=lambda: {
+        "sell_absorption",
+        "down_break",
+        "up_break",
+    })
+    # Snapshot settings
+    snapshot_path: str = "data/events/candidate_watchlist.csv"
+    max_snapshots: int = 5000
+    # Forward return horizons for snapshot validation
+    horizons_seconds: list = field(default_factory=lambda: [10, 30, 60, 120, 300])
+    # Price/delta/CVD path windows (seconds before/after event)
+    path_before_seconds: int = 30
+    path_after_seconds: int = 60
+    path_sample_interval: int = 5  # sample every N seconds
+
+
+@dataclass
 class EventEngineConfig:
     absorption: AbsorptionConfig = field(default_factory=AbsorptionConfig)
     exhaustion: ExhaustionConfig = field(default_factory=ExhaustionConfig)
@@ -140,6 +179,8 @@ class EventEngineConfig:
     dedup: DedupConfig = field(default_factory=DedupConfig)
     logger: LoggerConfig = field(default_factory=LoggerConfig)
     outcome: OutcomeConfig = field(default_factory=OutcomeConfig)
+    blacklist: BlacklistConfig = field(default_factory=BlacklistConfig)
+    watchlist: WatchlistConfig = field(default_factory=WatchlistConfig)
 
     # Global settings
     symbol: str = "BTC"

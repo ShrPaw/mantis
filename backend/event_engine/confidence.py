@@ -76,7 +76,12 @@ class ConfidenceEngine:
         "flow_consistency": 0.25,
         "event_reliability": 0.20,
     }
-    
+
+    # Blacklisted event types: reliability capped at this value
+    # These events are structurally unsound per forensic audit
+    BLACKLISTED_TYPES = {"exhaustion"}  # sell_exhaustion specifically
+    BLACKLISTED_RELIABILITY_CAP = 0.10
+
     def score(self, event_type: str, side: str, regime: str,
               price: float, buffer, session) -> dict:
         """
@@ -99,7 +104,12 @@ class ConfidenceEngine:
         flow_consist = self._flow_consistency(buffer, direction)
         
         # Component 4: Event reliability
-        event_rel = self.EVENT_RELIABILITY.get(event_type, 0.50)
+        # BLACKLIST enforcement: sell_exhaustion gets capped reliability
+        is_sell = self._is_sell_side(side)
+        if is_sell and event_type in self.BLACKLISTED_TYPES:
+            event_rel = self.BLACKLISTED_RELIABILITY_CAP
+        else:
+            event_rel = self.EVENT_RELIABILITY.get(event_type, 0.50)
         
         components = {
             "regime_alignment": regime_align,

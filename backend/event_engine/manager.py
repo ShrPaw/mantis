@@ -2,6 +2,14 @@
 MANTIS Event Engine — Event Manager
 Orchestrates all detectors, scoring, dedup, logging, and outcome tracking.
 Single entry point: on_trade(), on_book(), on_large_trade().
+
+BLACKLIST enforcement:
+  - sell_exhaustion, sell_imbalance, sell_cluster
+  - Still logged, never boost score, never tradeable.
+
+WATCHLIST:
+  - sell_absorption, down_break, up_break
+  - Full snapshot capture for candidate tracking.
 """
 
 import logging
@@ -15,6 +23,7 @@ from .event_logger import EventLogger
 from .outcome_tracker import OutcomeTracker
 from .models import MicrostructureEvent
 from .detectors import ALL_DETECTORS
+from .blacklist_watchlist import BlacklistWatchlistManager
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +50,9 @@ class EventManager:
         # Initialize all detectors
         self._detectors = [cls(self.ctx) for cls in ALL_DETECTORS]
 
+        # Blacklist / Watchlist enforcement
+        self.bw_manager = BlacklistWatchlistManager(self.config, self.ctx)
+
         # Event history for frontend
         self._event_history: list[MicrostructureEvent] = []
         self._max_history = self.config.max_event_history
@@ -48,8 +60,12 @@ class EventManager:
         # Stats
         self._events_fired: int = 0
         self._events_deduped: int = 0
+        self._events_blacklisted: int = 0
+        self._events_watchlisted: int = 0
 
         logger.info(f"EventManager initialized with {len(self._detectors)} detectors")
+        logger.info(f"Blacklist: {self.config.blacklist.event_types}")
+        logger.info(f"Watchlist: {self.config.watchlist.event_types}")
 
     def on_trade(self, price: float, qty: float, delta: float, timestamp: float) -> list[dict]:
         """
@@ -62,6 +78,9 @@ class EventManager:
         # Update outcome tracker
         self.outcomes.update(price, timestamp)
 
+        # Update watchlist outcomes
+        self.bw_manager.update_outcomes(price, timestamp)
+
         # Run all detectors
         all_events: list[MicrostructureEvent] = []
         for detector in self._detectors:
@@ -71,9 +90,26 @@ class EventManager:
             except Exception as e:
                 logger.error(f"Detector {detector.event_type} error: {e}")
 
-        # Score, dedup, log
+        # Score, dedup, log — with blacklist/watchlist enforcement
         new_events = []
         for event in all_events:
+            # ── BLACKLIST CHECK ─────────────────────────────
+            if self.bw_manager.check_blacklisted(event):
+                # Still log for diagnostics, but cap score
+                self.bw_manager.log_blacklisted(event)
+                self.outcomes.register(event, price)
+                self.logger.log(event)
+                self._events_blacklisted += 1
+                # Do NOT add to tradeable history
+                continue
+
+            # ── WATCHLIST CHECK ─────────────────────────────
+            if self.bw_manager.check_watchlisted(event):
+                self.bw_manager.capture_snapshot(event)
+                self._events_watchlisted += 1
+                # Watchlist events ARE still processed normally
+                # (logged, scored, tracked) — they are candidates
+
             # Dedup check
             if not self.dedup.should_fire(event):
                 self._events_deduped += 1
@@ -97,6 +133,10 @@ class EventManager:
         if self._events_fired % 100 == 0:
             self.dedup.cleanup(timestamp)
             self.logger.flush()
+            # Export watchlist snapshots periodically
+            self.bw_manager.export_watchlist_csv(
+                self.config.watchlist.snapshot_path
+            )
 
         return [e.to_dict() for e in new_events]
 
@@ -130,7 +170,11 @@ class EventManager:
                 "avg_strength": 0, "avg_confidence": 0,
                 "measured_count": 0, "unmeasured_count": 0,
                 "fired": self._events_fired, "deduped": self._events_deduped,
+                "blacklisted": self._events_blacklisted,
+                "watchlisted": self._events_watchlisted,
                 "pending_outcomes": self.outcomes.pending_count,
+                "blacklist_detail": self.bw_manager.export_blacklist_stats(),
+                "watchlist_summary": self.bw_manager.get_summary()["watchlist"],
             }
 
         by_type = {}
@@ -157,7 +201,11 @@ class EventManager:
             "unmeasured_count": len(events) - measured,
             "fired": self._events_fired,
             "deduped": self._events_deduped,
+            "blacklisted": self._events_blacklisted,
+            "watchlisted": self._events_watchlisted,
             "pending_outcomes": self.outcomes.pending_count,
+            "blacklist_detail": self.bw_manager.export_blacklist_stats(),
+            "watchlist_summary": self.bw_manager.get_summary()["watchlist"],
         }
 
     def get_active_events(self, limit: int = 20) -> list[dict]:
@@ -166,5 +214,8 @@ class EventManager:
         return [e.to_dict() for e in active[-limit:]]
 
     def flush(self):
-        """Force flush logger."""
+        """Force flush logger and export watchlist."""
         self.logger.flush()
+        self.bw_manager.export_watchlist_csv(
+            self.config.watchlist.snapshot_path
+        )
