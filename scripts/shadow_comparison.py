@@ -124,6 +124,186 @@ def compute_time_split(events: list[dict], horizon: int = 60, cost_bps: float = 
     }
 
 
+# ============================================================
+# Validation Layer 1: Baseline Comparison
+# ============================================================
+
+def compute_baseline_comparison(events: list[dict], horizon: int = 60, cost_bps: float = 4.0) -> dict:
+    """
+    Three-way baseline: ALL vs non-blacklisted vs watchlisted.
+    Ensures removing blacklisted events does not distort distributions.
+    Returns stats for each cohort at multiple horizons and costs.
+    """
+    all_events = events
+    non_bl = [e for e in events if not is_blacklisted(e.get("event_type", ""), e.get("side", ""))]
+    watchlisted = [e for e in events if is_watchlisted(e.get("event_type", ""), e.get("side", ""))]
+    blacklisted = [e for e in events if is_blacklisted(e.get("event_type", ""), e.get("side", ""))]
+
+    result = {}
+    for label, cohort in [("ALL", all_events), ("Non-BL", non_bl),
+                           ("Watchlisted", watchlisted), ("Blacklisted", blacklisted)]:
+        horizon_stats = {}
+        for h in [10, 30, 60, 120, 300]:
+            cost_stats = {}
+            for c in [2, 4, 6]:
+                cost_stats[f"net_{c}bps"] = compute_stats(cohort, h, c)
+            horizon_stats[f"{h}s"] = cost_stats
+        result[label] = {
+            "n": len(cohort),
+            "horizons": horizon_stats,
+            "summary": compute_stats(cohort, horizon, cost_bps),
+        }
+    return result
+
+
+# ============================================================
+# Validation Layer 2: Cohort Breakdown (event_type × regime)
+# ============================================================
+
+def extract_regime(event: dict) -> str:
+    """Extract regime from event context_metrics or shadow data."""
+    cm = event.get("context_metrics", {})
+    return cm.get("regime", "unknown")
+
+
+def compute_cohort_breakdown(events: list[dict], horizon: int = 60,
+                              cost_bps: float = 4.0) -> dict:
+    """
+    Cohort breakdown: event_type × side × regime × outcome.
+    Focus on watchlisted types: sell_absorption, down_break, up_break.
+    """
+    # Group by (event_type, side, regime)
+    groups = defaultdict(list)
+    for e in events:
+        etype = e.get("event_type", "")
+        side = e.get("side", "")
+        regime = extract_regime(e)
+        key = (etype, side, regime)
+        groups[key].append(e)
+
+    # Also group by (event_type, side) for regime-agnostic view
+    type_side_groups = defaultdict(list)
+    for e in events:
+        key = (e.get("event_type", ""), e.get("side", ""))
+        type_side_groups[key].append(e)
+
+    result = {}
+    for (etype, side, regime), evts in sorted(groups.items()):
+        key = f"{etype}|{side}|{regime}"
+        stats = compute_stats(evts, horizon, cost_bps)
+        stats["event_type"] = etype
+        stats["side"] = side
+        stats["regime"] = regime
+        result[key] = stats
+
+    # Regime-agnostic summary per type×side
+    type_summary = {}
+    for (etype, side), evts in sorted(type_side_groups.items()):
+        key = f"{etype}|{side}"
+        stats = compute_stats(evts, horizon, cost_bps)
+        stats["event_type"] = etype
+        stats["side"] = side
+        # Regime distribution for this type×side
+        regime_dist = defaultdict(int)
+        for e in evts:
+            regime_dist[extract_regime(e)] += 1
+        stats["regime_distribution"] = dict(regime_dist)
+        type_summary[key] = stats
+
+    return {"by_regime": result, "by_type_side": type_summary}
+
+
+# ============================================================
+# Validation Layer 3: Temporal Decay
+# ============================================================
+
+def compute_temporal_decay(events: list[dict], horizon: int = 60,
+                            cost_bps: float = 4.0,
+                            block_minutes: int = 10) -> dict:
+    """
+    Split performance into time blocks (default 10-min intervals).
+    Check if any apparent edge is stable or decays over time.
+    """
+    if not events:
+        return {"blocks": [], "decay_detected": False}
+
+    sorted_by_time = sorted(events, key=lambda e: e.get("timestamp", 0))
+    t_start = sorted_by_time[0].get("timestamp", 0)
+    t_end = sorted_by_time[-1].get("timestamp", 0)
+    block_seconds = block_minutes * 60
+
+    blocks = []
+    block_start = t_start
+    block_idx = 0
+
+    while block_start < t_end:
+        block_end = block_start + block_seconds
+        block_events = [e for e in sorted_by_time
+                        if block_start <= e.get("timestamp", 0) < block_end]
+
+        if block_events:
+            stats = compute_stats(block_events, horizon, cost_bps)
+            stats["block_index"] = block_idx
+            stats["time_start"] = block_start
+            stats["time_end"] = block_end
+            stats["minutes_from_start"] = round((block_start - t_start) / 60, 1)
+            blocks.append(stats)
+
+        block_start = block_end
+        block_idx += 1
+
+    # Decay analysis: compare first third vs last third
+    decay_detected = False
+    first_third_nets = []
+    last_third_nets = []
+
+    if len(blocks) >= 3:
+        third = len(blocks) // 3
+        first_third = blocks[:max(third, 1)]
+        last_third = blocks[-max(third, 1):]
+
+        first_third_nets = [b.get("mean_net_bps", 0) for b in first_third if b.get("n_with_outcome", 0) > 0]
+        last_third_nets = [b.get("mean_net_bps", 0) for b in last_third if b.get("n_with_outcome", 0) > 0]
+
+        if first_third_nets and last_third_nets:
+            avg_first = sum(first_third_nets) / len(first_third_nets)
+            avg_last = last_third_nets[-1] if last_third_nets else 0
+            # Decay = last block significantly worse than first blocks
+            if avg_first > 0 and avg_last < avg_first * 0.5:
+                decay_detected = True
+            elif avg_first > 0 and avg_last < 0:
+                decay_detected = True
+
+    # Trend: linear regression slope of net_bps over block index
+    valid_blocks = [b for b in blocks if b.get("n_with_outcome", 0) > 0]
+    trend_slope = None
+    if len(valid_blocks) >= 3:
+        xs = [b["block_index"] for b in valid_blocks]
+        ys = [b.get("mean_net_bps", 0) for b in valid_blocks]
+        n = len(xs)
+        sum_x = sum(xs)
+        sum_y = sum(ys)
+        sum_xy = sum(x * y for x, y in zip(xs, ys))
+        sum_x2 = sum(x * x for x in xs)
+        denom = n * sum_x2 - sum_x * sum_x
+        if denom != 0:
+            trend_slope = round((n * sum_xy - sum_x * sum_y) / denom, 4)
+
+    return {
+        "blocks": blocks,
+        "n_blocks": len(blocks),
+        "block_minutes": block_minutes,
+        "decay_detected": decay_detected,
+        "trend_slope": trend_slope,
+        "trend_interpretation": (
+            "DECAYING" if trend_slope is not None and trend_slope < -0.5 else
+            "STABLE" if trend_slope is not None and abs(trend_slope) <= 0.5 else
+            "IMPROVING" if trend_slope is not None else
+            "INSUFFICIENT_DATA"
+        ),
+    }
+
+
 def check_promotion_criteria(events: list[dict], event_type: str) -> dict:
     """
     Check if a watchlist event type meets promotion criteria:
@@ -332,6 +512,204 @@ def generate_report(events: list[dict]) -> str:
         lines.append("- Positive net expectancy at 4bps")
         lines.append("- Stable across chronological splits")
         lines.append("- No threshold tuning")
+    lines.append("")
+
+    # ─────────────────────────────────────────────────────────
+    # VALIDATION LAYER 1: Baseline Comparison
+    # ─────────────────────────────────────────────────────────
+    lines.append("---")
+    lines.append("")
+    lines.append("## 9. Validation: Baseline Comparison (ALL vs Non-BL vs Watchlisted)")
+    lines.append("")
+    lines.append("Ensures removing blacklisted events does not distort outcome distributions.")
+    lines.append("")
+
+    baseline = compute_baseline_comparison(events, 60, 4.0)
+    for label in ["ALL", "Non-BL", "Watchlisted", "Blacklisted"]:
+        cohort = baseline.get(label, {})
+        summary = cohort.get("summary", {})
+        lines.append(f"### {label}")
+        lines.append(f"- N: {cohort.get('n', 0)}")
+        lines.append(f"- N w/ outcome: {summary.get('n_with_outcome', 0)}")
+        lines.append(f"- Mean gross @60s: {summary.get('mean_gross_bps', 'N/A')} bps")
+        lines.append(f"- Mean net @4bps: {summary.get('mean_net_bps', 'N/A')} bps")
+        lines.append(f"- Winrate: {summary.get('winrate', 'N/A')}")
+        lines.append(f"- PF: {summary.get('profit_factor', 'N/A')}")
+        lines.append("")
+
+    # Multi-horizon comparison table
+    lines.append("### Multi-Horizon Comparison (net @ 4bps)")
+    lines.append("")
+    lines.append("| Horizon | ALL | Non-BL | Watchlisted | Blacklisted |")
+    lines.append("|---------|-----|--------|-------------|-------------|")
+    for h in [10, 30, 60, 120, 300]:
+        row = [f"{h}s"]
+        for label in ["ALL", "Non-BL", "Watchlisted", "Blacklisted"]:
+            h_data = baseline.get(label, {}).get("horizons", {}).get(f"{h}s", {})
+            net_stat = h_data.get("net_4bps", {})
+            row.append(f"{net_stat.get('mean_net_bps', 'N/A')}")
+        lines.append("| " + " | ".join(row) + " |")
+    lines.append("")
+
+    # Multi-cost comparison table
+    lines.append("### Multi-Cost Comparison (net @ 60s)")
+    lines.append("")
+    lines.append("| Cost | ALL | Non-BL | Watchlisted | Blacklisted |")
+    lines.append("|------|-----|--------|-------------|-------------|")
+    for c in [2, 4, 6]:
+        row = [f"{c}bps"]
+        for label in ["ALL", "Non-BL", "Watchlisted", "Blacklisted"]:
+            h_data = baseline.get(label, {}).get("horizons", {}).get("60s", {})
+            net_stat = h_data.get(f"net_{c}bps", {})
+            row.append(f"{net_stat.get('mean_net_bps', 'N/A')}")
+        lines.append("| " + " | ".join(row) + " |")
+    lines.append("")
+
+    # Distribution check
+    lines.append("### Distribution Integrity Check")
+    lines.append("")
+    n_all = baseline.get("ALL", {}).get("n", 0)
+    n_non_bl = baseline.get("Non-BL", {}).get("n", 0)
+    n_bl = baseline.get("Blacklisted", {}).get("n", 0)
+    n_wl = baseline.get("Watchlisted", {}).get("n", 0)
+    if n_all > 0:
+        lines.append(f"- Blacklisted share: {n_bl}/{n_all} = {n_bl/n_all*100:.1f}%")
+        lines.append(f"- Watchlisted share: {n_wl}/{n_all} = {n_wl/n_all*100:.1f}%")
+        if n_bl / n_all > 0.20:
+            lines.append("- ⚠️ Blacklist removes >20% of events — verify this is intentional")
+        else:
+            lines.append(f"- ✅ Blacklist impact is within acceptable range ({n_bl/n_all*100:.1f}%)")
+    lines.append("")
+
+    # ─────────────────────────────────────────────────────────
+    # VALIDATION LAYER 2: Cohort Breakdown (event_type × regime)
+    # ─────────────────────────────────────────────────────────
+    lines.append("---")
+    lines.append("")
+    lines.append("## 10. Validation: Cohort Breakdown (event_type × regime × outcome)")
+    lines.append("")
+    lines.append("Focus on watchlisted candidates: sell_absorption, down_break, up_break.")
+    lines.append("")
+
+    cohort = compute_cohort_breakdown(events, 60, 4.0)
+    type_summary = cohort.get("by_type_side", {})
+    by_regime = cohort.get("by_regime", {})
+
+    # Watchlisted types — detailed regime breakdown
+    for wt in sorted(WATCHLISTED_TYPES):
+        lines.append(f"### {wt}")
+        lines.append("")
+
+        # Find matching type×side entries
+        matching_ts = {k: v for k, v in type_summary.items() if wt in k}
+        for key, stats in sorted(matching_ts.items()):
+            lines.append(f"**{key}** — N={stats.get('n_with_outcome', 0)}, "
+                         f"gross@60s={stats.get('mean_gross_bps', 'N/A')}bps, "
+                         f"net@4bps={stats.get('mean_net_bps', 'N/A')}bps, "
+                         f"WR={stats.get('winrate', 'N/A')}, "
+                         f"PF={stats.get('profit_factor', 'N/A')}")
+            regime_dist = stats.get("regime_distribution", {})
+            if regime_dist:
+                lines.append(f"  Regime distribution: {dict(regime_dist)}")
+            lines.append("")
+
+        # Regime-level breakdown
+        matching_regime = {k: v for k, v in by_regime.items() if wt in k}
+        if matching_regime:
+            lines.append("| Regime | N | Gross@60s | Net@4bps | WR | PF |")
+            lines.append("|--------|---|-----------|----------|-----|-----|")
+            for key, stats in sorted(matching_regime.items()):
+                if stats.get("n_with_outcome", 0) == 0:
+                    continue
+                lines.append(
+                    f"| {stats.get('regime', '?')} | {stats.get('n_with_outcome', 0)} | "
+                    f"{stats.get('mean_gross_bps', 'N/A')} | "
+                    f"{stats.get('mean_net_bps', 'N/A')} | "
+                    f"{stats.get('winrate', 'N/A')} | "
+                    f"{stats.get('profit_factor', 'N/A')} |"
+                )
+            lines.append("")
+        else:
+            lines.append("_No regime-level data available._")
+            lines.append("")
+
+    # All type×side summary (non-watchlisted for context)
+    lines.append("### All Event Types (context)")
+    lines.append("")
+    lines.append("| Type|Side | N | Gross@60s | Net@4bps | WR | PF | Top Regime |")
+    lines.append("|-----|-----|---|-----------|----------|-----|-----|------------|")
+    for key, stats in sorted(type_summary.items()):
+        if stats.get("n_with_outcome", 0) == 0:
+            continue
+        regime_dist = stats.get("regime_distribution", {})
+        top_regime = max(regime_dist, key=regime_dist.get) if regime_dist else "?"
+        lines.append(
+            f"| {key} | {stats.get('n_with_outcome', 0)} | "
+            f"{stats.get('mean_gross_bps', 'N/A')} | "
+            f"{stats.get('mean_net_bps', 'N/A')} | "
+            f"{stats.get('winrate', 'N/A')} | "
+            f"{stats.get('profit_factor', 'N/A')} | "
+            f"{top_regime} |"
+        )
+    lines.append("")
+
+    # ─────────────────────────────────────────────────────────
+    # VALIDATION LAYER 3: Temporal Decay
+    # ─────────────────────────────────────────────────────────
+    lines.append("---")
+    lines.append("")
+    lines.append("## 11. Validation: Temporal Decay (10-min blocks)")
+    lines.append("")
+    lines.append("Splits performance into 10-minute intervals to check if any apparent")
+    lines.append("edge is stable or decays over time.")
+    lines.append("")
+
+    decay = compute_temporal_decay(events, 60, 4.0, block_minutes=10)
+
+    blocks = decay.get("blocks", [])
+    if blocks:
+        lines.append(f"**Blocks:** {decay.get('n_blocks', 0)} × {decay.get('block_minutes', 10)}-min intervals")
+        lines.append(f"**Trend slope:** {decay.get('trend_slope', 'N/A')} net_bps/block")
+        lines.append(f"**Interpretation:** {decay.get('trend_interpretation', 'N/A')}")
+        if decay.get("decay_detected"):
+            lines.append(f"**⚠️ Decay detected:** Edge weakens over time.")
+        else:
+            lines.append(f"**✅ No decay:** Edge appears stable across time blocks.")
+        lines.append("")
+
+        # Block-by-block table
+        lines.append("| Block | Minutes | N | Gross@60s | Net@4bps | WR | PF |")
+        lines.append("|-------|---------|---|-----------|----------|-----|-----|")
+        for b in blocks:
+            lines.append(
+                f"| #{b.get('block_index', 0)} | "
+                f"{b.get('minutes_from_start', 0):.0f}m | "
+                f"{b.get('n_with_outcome', 0)} | "
+                f"{b.get('mean_gross_bps', 'N/A')} | "
+                f"{b.get('mean_net_bps', 'N/A')} | "
+                f"{b.get('winrate', 'N/A')} | "
+                f"{b.get('profit_factor', 'N/A')} |"
+            )
+        lines.append("")
+    else:
+        lines.append("_Insufficient data for temporal decay analysis._")
+        lines.append("")
+
+    # Temporal decay for watchlisted types specifically
+    lines.append("### Temporal Decay: Watchlisted Types")
+    lines.append("")
+    for wt in sorted(WATCHLISTED_TYPES):
+        wt_events = [e for e in events if wt in e.get("event_type", "") or wt in e.get("side", "")]
+        if not wt_events:
+            continue
+        wt_decay = compute_temporal_decay(wt_events, 60, 4.0, block_minutes=10)
+        interp = wt_decay.get("trend_interpretation", "N/A")
+        slope = wt_decay.get("trend_slope", "N/A")
+        n_blocks = wt_decay.get("n_blocks", 0)
+        n_events = len(wt_events)
+        decay_flag = "⚠️ DECAY" if wt_decay.get("decay_detected") else "✅ STABLE"
+        lines.append(f"- **{wt}**: {n_events} events, {n_blocks} blocks, "
+                     f"slope={slope}, {interp} {decay_flag}")
     lines.append("")
 
     return "\n".join(lines)
