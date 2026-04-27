@@ -43,7 +43,19 @@ def replay_trades(input_path: str, output_csv: str, output_report: str):
                 data = json.loads(line)
                 trade_type = data.get("type", "")
 
-                if trade_type == "large_trade":
+                # Collector output format: {"timestamp", "price", "qty", "side", "delta"}
+                # No "type" field — detect by presence of "side" and "delta"
+                if "price" in data and "qty" in data and "delta" in data:
+                    price = data.get("price", 0)
+                    qty = data.get("qty", 0)
+                    delta = data.get("delta", 0)
+                    ts = data.get("timestamp", 0)
+
+                    if price > 0 and qty > 0:
+                        runner.on_trade(price, qty, delta, ts)
+                        trade_count += 1
+
+                elif trade_type == "large_trade":
                     price = data.get("price", 0)
                     qty = data.get("qty", 0)
                     delta = data.get("delta", 0)
