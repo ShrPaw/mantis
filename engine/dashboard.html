@@ -398,7 +398,9 @@
     </div>
 
     <script>
-        const WS_URL = `ws://${window.location.hostname}:8001/ws`;
+        const WS_URL = window.location.hostname
+            ? `ws://${window.location.hostname}:8001/ws`
+            : "ws://localhost:8001/ws";
         let ws = null;
         let reconnectDelay = 1000;
 
