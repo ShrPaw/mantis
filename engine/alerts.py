@@ -31,8 +31,11 @@ class AlertManager:
         self._max_per_hour = self.cfg.get("max_alerts_per_hour", 20)
 
         # Rate limiting
-        self._last_alert_by_state: dict[str, float] = {}
+        self._last_alert_by_key: dict[str, float] = {}
         self._alert_times: deque[float] = deque(maxlen=100)
+
+        # Suppression tracking
+        self.suppressed_alert_count: int = 0
 
     def check(self, scores: Scores, state: MarketState,
               crowd: CrowdBuildupState, cascade: LiquidationCascadeState,
@@ -65,14 +68,22 @@ class AlertManager:
 
         return None
 
-    def _is_rate_limited(self, state_key: str, now: float) -> bool:
-        """Check if this state type was recently alerted."""
-        last = self._last_alert_by_state.get(state_key, 0)
-        return now - last < self._min_seconds
+    @staticmethod
+    def _build_key(tier: int, state: str, side: str) -> str:
+        """Build a canonical dedup key: tier + state + side."""
+        return f"TIER{tier}_{state}_{side}"
 
-    def _record_alert(self, alert: Alert, now: float):
-        """Record alert for rate limiting."""
-        self._last_alert_by_state[alert.state] = now
+    def _is_rate_limited(self, dedup_key: str, now: float) -> bool:
+        """Check if this exact key (tier+state+side) was recently alerted."""
+        last = self._last_alert_by_key.get(dedup_key, 0)
+        if now - last < self._min_seconds:
+            self.suppressed_alert_count += 1
+            return True
+        return False
+
+    def _record_alert(self, dedup_key: str, now: float):
+        """Record alert for rate limiting using the same key that was checked."""
+        self._last_alert_by_key[dedup_key] = now
         self._alert_times.append(now)
 
     def _check_tier3(self, scores: Scores, state: MarketState,
@@ -94,8 +105,9 @@ class AlertManager:
         if not reasons:
             return None
 
-        state_key = f"TIER3_{'_'.join(r.split()[0] for r in reasons)}"
-        if self._is_rate_limited(state_key, now):
+        side = self._determine_side(cascade, scores)
+        dedup_key = self._build_key(3, "DANGER", side)
+        if self._is_rate_limited(dedup_key, now):
             return None
 
         # Determine execution recommendation
@@ -110,14 +122,14 @@ class AlertManager:
             timestamp=now,
             tier=3,
             state="DANGER",
-            side=self._determine_side(cascade, scores),
+            side=side,
             severity=scores.risk,
             reason="; ".join(reasons),
             do_not="Do NOT enter new positions. Do NOT chase moves.",
             execution_recommendation=exec_rec,
             scores=scores,
         )
-        self._record_alert(alert, now)
+        self._record_alert(dedup_key, now)
         return alert
 
     def _check_tier2(self, scores: Scores, state: MarketState,
@@ -133,10 +145,6 @@ class AlertManager:
                 scores.risk <= risk_max):
             return None
 
-        state_key = f"TIER2_{state.value}"
-        if self._is_rate_limited(state_key, now):
-            return None
-
         side = "NEUTRAL"
         reason_parts = [f"Imbalance {scores.imbalance:.0f}", f"Exec {scores.execution_quality:.0f}"]
         if crowd.active:
@@ -145,6 +153,10 @@ class AlertManager:
         if unwind.active:
             side = unwind.unwind_side
             reason_parts.append(f"Unwind: {unwind.unwind_side}")
+
+        dedup_key = self._build_key(2, state.value, side)
+        if self._is_rate_limited(dedup_key, now):
+            return None
 
         # Determine execution mode
         if scores.execution_quality >= 80:
@@ -163,7 +175,7 @@ class AlertManager:
             execution_recommendation=exec_rec,
             scores=scores,
         )
-        self._record_alert(alert, now)
+        self._record_alert(dedup_key, now)
         return alert
 
     def _check_tier1(self, scores: Scores, state: MarketState,
@@ -176,15 +188,15 @@ class AlertManager:
         if not (scores.imbalance >= imb_min and scores.execution_quality >= exec_min):
             return None
 
-        state_key = f"TIER1_{state.value}"
-        if self._is_rate_limited(state_key, now):
-            return None
-
         side = "NEUTRAL"
         if crowd.active:
             side = crowd.crowd_side
         elif unwind.active:
             side = unwind.unwind_side
+
+        dedup_key = self._build_key(1, state.value, side)
+        if self._is_rate_limited(dedup_key, now):
+            return None
 
         alert = Alert(
             timestamp=now,
@@ -197,7 +209,7 @@ class AlertManager:
             execution_recommendation="WATCH — Monitor for escalation or resolution.",
             scores=scores,
         )
-        self._record_alert(alert, now)
+        self._record_alert(dedup_key, now)
         return alert
 
     def _determine_side(self, cascade: LiquidationCascadeState,
