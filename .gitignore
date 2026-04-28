@@ -9,3 +9,8 @@ data/
 backend/mantis_events.log
 backend/nohup.out
 *.jsonl
+
+.env
+.env.*
+*.log
+nohup.out
