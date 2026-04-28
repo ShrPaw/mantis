@@ -2,7 +2,7 @@
 
 **Project:** MANTIS — Real-time BTC microstructure dashboard + auction failure edge validation
 **Platform:** Hyperliquid DEX (BTC/USD perpetuals)
-**Status:** Compression→Expansion validated — NO EDGE. Two hypotheses closed.
+**Status:** Three hypotheses tested. All closed. Funding outlier-dependent.
 **Last Updated:** 2026-04-28
 
 ---
@@ -200,15 +200,70 @@ Periods of low volatility + tight range → breakout → directional continuatio
 
 ---
 
-## Cumulative Verdict (Sessions 1-3)
+## Session 4 — Funding / Positioning Pressure Validation
 
-| Hypothesis | Events | Verdict |
-|------------|--------|---------|
-| Auction failure (4 detectors) | ~25-30 | ❌ Insufficient data |
-| Expansion continuation | 4-64 | ❌ Insufficient + negative |
-| Compression → expansion | 3,374 | ❌ No meaningful expansion |
+### Hypothesis
+"Extreme funding rates create exploitable price behavior."
+Funding extremes (long/short crowded) → predictable mean reversion or continuation.
 
-**Two structural hypotheses tested. Both closed. No edge found.**
+### Data
+- **Funding:** 1,095 records (12 months, 2025-04-28 to 2026-04-28, Binance Futures)
+- **Price:** 482,400 1m bars (11 months, 2025-05-01 to 2026-03-31)
+- **OI/LSR/Taker:** APIs only return recent data — not usable for full analysis
+
+### Method
+- Rolling 24h funding mean ± 2σ = extreme
+- Tested both mean reversion AND continuation hypotheses
+- Horizons: 1h, 4h, 8h, 24h, 48h
+- Baselines: random, same-vol, opposite
+
+### Results (Mean Reversion — best hypothesis)
+- **319 events** (151 long crowded, 168 short crowded)
+- **Gross 24h:** +13.14 bps
+- **Net 24h @4bps:** +9.14 bps
+- **PF:** 1.11 (barely above threshold)
+
+### Critical Finding: Outlier Dependence
+- **Top 5% (15 events) contribute +9,948 bps** vs total +4,315 bps
+- **Without top 5%: mean = -18.53 bps** (deeply negative)
+- **Median return = 0.00 bps** (coin flip)
+- Top event: +1,383 bps (single liquidation cascade, 2026-02-05)
+- Events cluster in Nov 2025 – Mar 2026 (specific market regime)
+- **Long crowded:** Mean=+31.51 but median=0.00, 119% outlier dependent
+- **Short crowded:** Mean=-2.64, median=0.00, no signal
+
+### Verdict
+**❌ NO EDGE. Path closed.**
+
+The "edge" is entirely driven by a handful of extreme market events (liquidation cascades), not a systematic funding pressure mechanism. Funding rate extremes do not create exploitable price behavior at these definitions.
+
+---
+
+## Cumulative Verdict (Sessions 1-4)
+
+| # | Hypothesis | Events | Gross | Net @4bps | PF | Verdict |
+|---|------------|--------|-------|-----------|-----|---------|
+| 1 | Auction failure (4 detectors) | ~25-30 | — | — | — | ❌ Insufficient data |
+| 2 | Expansion continuation | 4-64 | -3.28 bps | -7.28 bps | 0.25 | ❌ Negative |
+| 3 | Compression → expansion | 3,374 | -0.63 bps | -4.63 bps | 0.55 | ❌ No expansion |
+| 4 | Funding positioning (reversion) | 319 | +13.14 bps | +9.14 bps | 1.11 | ❌ Outlier-dependent |
+
+**Four hypotheses tested. All closed. No edge found.**
+
+### What We Learned
+1. BTC microstructure at 1m scale is dominated by noise and cost
+2. Compression doesn't predict directional expansion
+3. Funding extremes don't create systematic reversion — only extreme events (liquidation cascades) produce large moves, and those are not predictable from funding alone
+4. The few "positive" results (funding reversion) are driven by outliers, not systematic behavior
+
+### Possible Next Directions (if continuing)
+- **Cross-asset lead-lag** (ETH leads BTC?) — requires multi-asset data
+- **Order book imbalance** (requires L2 data)
+- **Funding + OI + liquidation combined** (requires better data access)
+- **Regime detection** (trending vs ranging) — requires longer history
+- **Higher timeframe** (4h/1d bars) — may reduce noise
+
+**Do NOT tune existing hypotheses. They are closed.**
 
 ---
 
@@ -218,8 +273,11 @@ Periods of low volatility + tight range → breakout → directional continuatio
 |------|---------|
 | `research/auction_failure/` | Session 1-2 module (auction failure) |
 | `research/compression_expansion/analyze.py` | Session 3 module (compression→expansion) |
+| `research/funding_positioning/analyze.py` | Session 4 module (funding/positioning) |
 | `data/historical/btcusdt_1m.csv` | 11 months of BTC 1m bars (Binance) |
+| `data/historical/btcusdt_funding.csv` | 12 months of funding rates (Binance Futures) |
 | `COMPRESSION_EXPANSION_REPORT.md` | Session 3 report |
+| `FUNDING_POSITIONING_REPORT.md` | Session 4 report |
 | `AUCTION_FAILURE_RESEARCH_REPORT.md` | Session 2 report |
 | `FORENSIC_AUDIT_REPORT.md` | Session 1 audit of old 8-detector system |
 
