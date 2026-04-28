@@ -146,9 +146,24 @@
 ### ❌ EDGE NOT VALIDATED
 Failed: Outlier dep < 30%
 
+### Outlier Deep-Dive
+
+The 24h reversion "edge" is **entirely driven by outliers**:
+
+- **Top 5% (15 events) contribute +9,948 bps** while total PnL is only +4,315 bps
+- **Without top 5%: mean = -18.53 bps per event** (deeply negative)
+- **Median return = 0.00 bps** — coin flip at median
+- **Top event:** 2026-02-05 long_crowded → +1,383 bps (single outlier)
+- **Top 10 events cluster** in Nov 2025 – Mar 2026 (specific market regime)
+
+The "edge" is a few extreme market events (likely liquidation cascades), not a systematic signal.
+
+**Long crowded (N=151):** Mean=+31.51 bps, Median=0.00 bps, 119% outlier dependent
+**Short crowded (N=168):** Mean=-2.64 bps, Median=0.00 bps, no signal at all
+
 ## 9. Next Action
 
-**ONE:** Validate with additional data sources (Bybit, Hyperliquid) and test cross-asset (ETH).
+**ONE:** This path is closed. The funding reversion "edge" is entirely outlier-dependent. Without the top 5% of events (15 trades), mean return is -18.53 bps. Median return is 0.00 bps. The signal comes from a handful of extreme market events (likely liquidation cascades in Nov 2025 – Mar 2026), not from a systematic funding pressure mechanism. Funding rate extremes do not create exploitable price behavior.
 
 ---
 *No parameters were tuned after seeing results.*
