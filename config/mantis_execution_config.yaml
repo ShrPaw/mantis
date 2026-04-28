@@ -1,0 +1,120 @@
+# MANTIS Execution Engine Configuration
+# All thresholds are structural assumptions. Do not tune without validation.
+
+funding:
+  z_extreme: 2.0
+  percentile_extreme: 0.95
+  rolling_window_hours: 168  # 7 days
+  fetch_interval_seconds: 60
+
+open_interest:
+  strong_rise_percentile: 0.80
+  strong_fall_percentile: 0.20
+  change_windows_minutes: [5, 15, 60]
+  fetch_interval_seconds: 30
+
+liquidations:
+  cascade_percentile: 0.95
+  price_displacement_percentile: 0.90
+  volume_spike_percentile: 0.90
+  cluster_window_seconds: 60
+
+trade_flow:
+  strong_buy_pressure: 0.65
+  strong_sell_pressure: 0.65
+  delta_z_extreme: 2.0
+  volume_spike_percentile: 0.90
+  rolling_window_seconds: 300
+
+order_book:
+  spread_danger_z: 2.0
+  depth_danger_z: -2.0
+  sudden_depth_drop_pct: 0.50
+  depth_sample_levels: 10
+  book_imbalance_extreme: 0.40
+
+execution:
+  max_spread_bps: 2.0
+  max_expected_slippage_bps: 4.0
+  min_depth_usd: 50000
+  volatility_shock_z: 3.0
+  hostile_threshold: 39
+  caution_threshold: 69
+
+detectors:
+  crowd_buildup:
+    funding_z_threshold: 2.0
+    oi_percentile_threshold: 0.80
+    price_stall_bps: 10
+  liquidation_cascade:
+    notional_percentile: 0.95
+    price_return_percentile: 0.90
+    volume_percentile: 0.90
+  unwind:
+    funding_z_threshold: 2.0
+    oi_fall_window_minutes: 15
+    price_move_bps: 5
+  exhaustion:
+    follow_through_bps: 5
+    follow_through_bars: 3
+    delta_z_extreme: 2.0
+    volume_cluster_percentile: 0.90
+
+scoring:
+  imbalance:
+    weights:
+      funding_z: 0.25
+      oi_z: 0.25
+      liquidation_z: 0.20
+      volume_z: 0.15
+      delta_z: 0.15
+  execution_quality:
+    weights:
+      spread: 0.25
+      depth: 0.25
+      slippage: 0.20
+      volatility: 0.15
+      book_stability: 0.15
+  risk:
+    weights:
+      volatility: 0.25
+      spread: 0.20
+      liquidation_intensity: 0.25
+      oi_instability: 0.15
+      book_thinning: 0.15
+  trade_environment:
+    imbalance_weight: 0.40
+    execution_quality_weight: 0.35
+    risk_weight: 0.25
+
+alerts:
+  tier1:
+    imbalance_score_min: 60
+    execution_quality_min: 50
+  tier2:
+    imbalance_score_min: 75
+    execution_quality_min: 70
+    risk_score_max: 60
+  tier3:
+    risk_score_min: 75
+    execution_quality_max: 35
+    cascade_intensity_min: 80
+  min_seconds_between_same_alert: 60
+  max_alerts_per_hour: 20
+
+data:
+  events_dir: "data/events"
+  metrics_dir: "data/metrics"
+  events_jsonl: "data/events/mantis_events.jsonl"
+  events_csv: "data/events/mantis_events.csv"
+  metrics_json: "data/metrics/realtime_metrics.json"
+
+exchanges:
+  hyperliquid:
+    ws_url: "wss://api.hyperliquid.xyz/ws"
+    rest_url: "https://api.hyperliquid.xyz"
+    enabled: true
+  binance:
+    ws_url: "wss://fstream.binance.com/ws"
+    rest_url: "https://fapi.binance.com"
+    enabled: true
