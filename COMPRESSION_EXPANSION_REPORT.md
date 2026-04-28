@@ -1,152 +1,169 @@
 # COMPRESSION → EXPANSION REPORT
 
 **Date:** 2026-04-28
-**Generated:** 2026-04-28 10:11:20
+**Generated:** 2026-04-28 10:19:45
 
 ## 1. Data Summary
 
-- **Source:** Binance BTC/USDT 1-minute bars
-- **Bars:** 10081
-- **Duration:** 168.0 hours
-- **Period:** 2026-04-21 02:10 to 2026-04-28 02:10 UTC
+- **Source:** Binance BTC/USDT 1-minute bars (historical)
+- **Bars:** 482,400
+- **Duration:** 335 days (11.2 months)
+- **Period:** 2025-05-01 to 2026-03-31 UTC
 
 ## 2. Compression Definition
 
 **Compression = market storing energy**
 
 A 1-minute bar is in COMPRESSION state if:
-
 - Realized volatility (over [10, 30, 60] min windows) is in bottom 20% of last 24h
   AND
 - High-low range (over [10, 30, 60] min windows) is in bottom 20% of last 24h
 
-Consecutive compressed bars form a **compression box** (defined by the high/low of the compressed period).
+Consecutive compressed bars form a **compression box** (high/low of the compressed period).
 
-- **Total compression bars detected:** 515 (5.1% of data)
-- **Compression boxes:** 64
+- **Compression bars:** 28,232 (5.9% of data)
+- **Compression boxes:** 3374
 
 ## 3. Breakout Logic
 
-**LONG breakout:** Price closes above compression box high
-
-**SHORT breakout:** Price closes below compression box low
-
-**Confirmation:** Price must remain outside the box for [1, 3, 5] minutes
-
-**Entry:** Close price after confirmation window (NOT at breakout)
+**LONG:** Price closes above compression box high
+**SHORT:** Price closes below compression box low
+**Confirmation:** Price stays outside box for [1, 3, 5] min
+**Entry:** Close price AFTER confirmation window
 
 ## 4. Results vs Baselines
 
-**Total breakouts:** 64
-- Long: 34
-- Short: 30
+**Total breakouts:** 3374
+- Long: 1691
+- Short: 1683
 
-### All (N=64)
+### All (N=3374)
 
 | Horizon | Gross Mean(bps) | Gross Median(bps) | Net@4bps Mean | Winrate@4bps | PF@4bps |
 |---------|-----------------|-------------------|---------------|--------------|---------|
-| 5m | 0.21 | -0.45 | -3.79 | 21.9% | 0.20 |
-| 15m | -0.96 | -1.17 | -4.96 | 28.1% | 0.34 |
-| 30m | -3.28 | -2.51 | -7.28 | 31.2% | 0.25 |
-| 60m | -3.00 | -1.24 | -7.00 | 39.1% | 0.35 |
-| 120m | -1.52 | -2.94 | -5.52 | 43.8% | 0.58 |
+| 5m | 0.17 | -0.00 | -3.83 | 24.9% | 0.32 |
+| 15m | -0.24 | -0.22 | -4.24 | 32.8% | 0.46 |
+| 30m | -0.63 | -0.96 | -4.63 | 36.6% | 0.55 |
+| 60m | -0.65 | -0.79 | -4.65 | 40.1% | 0.65 |
+| 120m | -0.54 | -1.68 | -4.54 | 42.3% | 0.76 |
 
-- **Mean MFE:** 22.69 bps
-- **Mean MAE:** -26.78 bps
-- **MFE/MAE ratio:** 0.85
+- **Mean MFE:** 35.18 bps
+- **Mean MAE:** -34.80 bps
+- **MFE/MAE ratio:** 1.01
 - **Median time-to-positive:** 2.0 min
-- **Mean box duration:** 8.0 min
-- **Mean box range:** 5.6 bps
+- **Mean box duration:** 8.4 min
+- **Mean box range:** 6.9 bps
 
-### Long (N=34)
+**Quarterly stability (60m horizon):**
+
+- Q1: -1.18 bps (N=843)
+- Q2: 0.00 bps (N=843)
+- Q3: -2.75 bps (N=843)
+- Q4: 1.30 bps (N=843)
+
+### Long (N=1691)
 
 | Horizon | Gross Mean(bps) | Gross Median(bps) | Net@4bps Mean | Winrate@4bps | PF@4bps |
 |---------|-----------------|-------------------|---------------|--------------|---------|
-| 5m | -0.51 | -0.71 | -4.51 | 20.6% | 0.11 |
-| 15m | -1.92 | -2.05 | -5.92 | 20.6% | 0.22 |
-| 30m | -1.89 | 1.01 | -5.89 | 35.3% | 0.29 |
-| 60m | 1.35 | 4.66 | -2.65 | 52.9% | 0.60 |
-| 120m | 3.00 | 4.38 | -1.00 | 52.9% | 0.89 |
+| 5m | -0.16 | -0.08 | -4.16 | 23.8% | 0.28 |
+| 15m | -0.53 | -0.69 | -4.53 | 32.5% | 0.43 |
+| 30m | -1.57 | -1.75 | -5.57 | 35.0% | 0.48 |
+| 60m | -2.89 | -1.12 | -6.89 | 38.4% | 0.52 |
+| 120m | -4.36 | -3.35 | -8.36 | 40.6% | 0.58 |
 
-- **Mean MFE:** 25.78 bps
-- **Mean MAE:** -23.20 bps
-- **MFE/MAE ratio:** 1.11
+- **Mean MFE:** 31.29 bps
+- **Mean MAE:** -36.14 bps
+- **MFE/MAE ratio:** 0.87
 - **Median time-to-positive:** 2.0 min
-- **Mean box duration:** 7.3 min
-- **Mean box range:** 6.0 bps
+- **Mean box duration:** 8.4 min
+- **Mean box range:** 6.8 bps
 
-### Short (N=30)
+**Quarterly stability (60m horizon):**
+
+- Q1: -1.51 bps (N=422)
+- Q2: -0.48 bps (N=422)
+- Q3: -6.84 bps (N=422)
+- Q4: -2.80 bps (N=422)
+
+### Short (N=1683)
 
 | Horizon | Gross Mean(bps) | Gross Median(bps) | Net@4bps Mean | Winrate@4bps | PF@4bps |
 |---------|-----------------|-------------------|---------------|--------------|---------|
-| 5m | 1.02 | -0.31 | -2.98 | 23.3% | 0.32 |
-| 15m | 0.14 | 0.82 | -3.86 | 36.7% | 0.48 |
-| 30m | -4.86 | -5.65 | -8.86 | 26.7% | 0.22 |
-| 60m | -7.93 | -12.95 | -11.93 | 23.3% | 0.23 |
-| 120m | -6.65 | -8.23 | -10.65 | 33.3% | 0.40 |
+| 5m | 0.50 | 0.00 | -3.50 | 26.0% | 0.35 |
+| 15m | 0.06 | 0.16 | -3.94 | 33.1% | 0.50 |
+| 30m | 0.33 | -0.11 | -3.67 | 38.2% | 0.63 |
+| 60m | 1.59 | -0.44 | -2.41 | 41.7% | 0.81 |
+| 120m | 3.31 | -0.42 | -0.69 | 44.0% | 0.96 |
 
-- **Mean MFE:** 19.18 bps
-- **Mean MAE:** -30.83 bps
-- **MFE/MAE ratio:** 0.62
-- **Median time-to-positive:** 1.5 min
-- **Mean box duration:** 8.9 min
-- **Mean box range:** 5.1 bps
+- **Mean MFE:** 39.07 bps
+- **Mean MAE:** -33.46 bps
+- **MFE/MAE ratio:** 1.17
+- **Median time-to-positive:** 1.0 min
+- **Mean box duration:** 8.4 min
+- **Mean box range:** 7.1 bps
+
+**Quarterly stability (60m horizon):**
+
+- Q1: -1.33 bps (N=420)
+- Q2: 0.88 bps (N=420)
+- Q3: 1.15 bps (N=420)
+- Q4: 5.69 bps (N=420)
 
 ### Baseline Comparison
 
 | Baseline | 30m mean(bps) | 60m mean(bps) | 120m mean(bps) | Count |
 |----------|---------------|---------------|----------------|-------|
-| random | 0.38 | 0.98 | 1.68 | 640 |
-| same_vol | 0.63 | 1.13 | 0.52 | 640 |
-| drift | 0.25 | 0.05 | -1.00 | 640 |
-| opposite | 3.28 | 3.00 | 1.52 | 64 |
+| random | -1.07 | -1.11 | -0.18 | 5000 |
+| same_vol | 0.59 | 0.62 | 0.27 | 4468 |
+| drift | -0.01 | 0.03 | 0.54 | 5000 |
+| opposite | 0.63 | 0.66 | 0.54 | 3374 |
 
 **Edge vs baselines (60m horizon):**
 
-- ❌ vs random: -3.98 bps (setup=-3.00, baseline=0.98)
-- ❌ vs same_vol: -4.13 bps (setup=-3.00, baseline=1.13)
-- ❌ vs drift: -3.06 bps (setup=-3.00, baseline=0.05)
-- ❌ vs opposite: -6.00 bps (setup=-3.00, baseline=3.00)
+- ✅ vs random: +0.45 bps (setup=-0.65, baseline=-1.11)
+- ❌ vs same_vol: -1.28 bps (setup=-0.65, baseline=0.62)
+- ❌ vs drift: -0.69 bps (setup=-0.65, baseline=0.03)
+- ❌ vs opposite: -1.31 bps (setup=-0.65, baseline=0.66)
 
 ## 5. Cost Analysis
 
 | Horizon | Gross | Net@2bps | Net@4bps | Net@6bps |
 |---------|-------|----------|----------|----------|
-| 5m | 0.21 | -1.79 | -3.79 | -5.79 |
-| 15m | -0.96 | -2.96 | -4.96 | -6.96 |
-| 30m | -3.28 | -5.28 | -7.28 | -9.28 |
-| 60m | -3.00 | -5.00 | -7.00 | -9.00 |
-| 120m | -1.52 | -3.52 | -5.52 | -7.52 |
+| 5m | 0.17 | -1.83 | -3.83 | -5.83 |
+| 15m | -0.24 | -2.24 | -4.24 | -6.24 |
+| 30m | -0.63 | -2.63 | -4.63 | -6.63 |
+| 60m | -0.65 | -2.65 | -4.65 | -6.65 |
+| 120m | -0.54 | -2.54 | -4.54 | -6.54 |
 
 ## 6. Stability
 
-- **30m:** First half=-3.01 bps, Second half=-3.55 bps ✅
-- **60m:** First half=-2.70 bps, Second half=-3.31 bps ✅
+- **30m:** First half=-0.76 bps, Second half=-0.49 bps ✅
+- **60m:** First half=-0.59 bps, Second half=-0.72 bps ✅
+- **120m:** First half=-0.56 bps, Second half=-0.51 bps ✅
 
 ## 7. Failure Classification
 
-- Direction is random — both sides move same way
-- MFE < MAE — adverse excursion exceeds favorable
+- No meaningful expansion after compression (|mean 30m| < 1 bps)
 
 ## 8. Final Verdict
 
 | Criterion | Status | Value |
 |-----------|--------|-------|
-| Occurrences ≥ 100 | ❌ | 64 |
-| Mean net @4bps ≥ 0 | ❌ | -7.28 bps |
-| PF > 1.1 | ❌ | 0.25 |
-| MFE >> MAE | ❌ | 0.85 |
+| Occurrences ≥ 100 | ✅ | 3374 |
+| Mean net @4bps ≥ 0 | ❌ | -4.63 bps |
+| PF > 1.1 | ❌ | 0.55 |
+| MFE >> MAE | ✅ | 1.01 |
 | Outlier dep < 30% | ✅ | 0.0% |
-| Same sign across halves | ✅ | 1st=-2.70, 2nd=-3.31 |
-| Beats random baseline | ❌ | setup=-3.00, rand=0.98 |
+| Same sign across halves | ✅ | 1st=-0.59, 2nd=-0.72 |
+| Beats random baseline | ✅ | setup=-0.65, rand=-1.11 |
 
 ### ❌ EDGE NOT VALIDATED
 
-Failed criteria: Occurrences ≥ 100, Mean net @4bps ≥ 0, PF > 1.1, MFE >> MAE, Beats random baseline
+Failed criteria: Mean net @4bps ≥ 0, PF > 1.1
 ## 9. Next Action
 
-**ONE:** Collect significantly more data (3-7 days of 1m bars) to reach minimum sample size, then re-run.
+**ONE:** This path is closed. Compression → expansion does not produce edge at these definitions.
 
 ---
 *No parameters were tuned after seeing results. All thresholds are structural assumptions.*
-*Analysis completed 2026-04-28 10:11:20.*
+*Analysis completed 2026-04-28 10:19:45.*

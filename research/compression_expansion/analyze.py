@@ -1,8 +1,8 @@
 """
-Compression → Expansion Research — Single-file Analysis
+Compression → Expansion Research — Optimized for large datasets
 
 Hypothesis: periods of low volatility compression lead to large directional
-exp expansions sufficient to overcome costs.
+expansions sufficient to overcome costs.
 
 Reads 1m OHLCV bars (CSV), detects compression, measures breakout outcomes,
 computes baselines, generates report.
@@ -10,7 +10,7 @@ computes baselines, generates report.
 No tuning. No ML. No optimization. Fixed definitions.
 
 Usage:
-  python3 -m research.compression_expansion.analyze --input data/expansion/btc_1m.csv
+  python3 -m research.compression_expansion.analyze --input data/historical/btcusdt_1m.csv
 """
 
 import argparse
@@ -19,6 +19,7 @@ import math
 import os
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -26,21 +27,17 @@ from typing import Optional
 # FIXED CONFIGURATION — Set BEFORE seeing any data
 # ============================================================
 
-# Compression detection
-VOL_WINDOWS_MIN = [10, 30, 60]          # realized vol lookback
-RANGE_WINDOWS_MIN = [10, 30, 60]        # range lookback
-COMPRESSION_PERCENTILE = 20              # bottom 20% = compression
-LOOKBACK_HOURS = 24                      # rolling percentile lookback
+VOL_WINDOWS_MIN = [10, 30, 60]
+RANGE_WINDOWS_MIN = [10, 30, 60]
+COMPRESSION_PERCENTILE = 20
+LOOKBACK_HOURS = 24
+LOOKBACK_BARS = LOOKBACK_HOURS * 60
 
-# Breakout
-BREAKOUT_CONFIRM_MIN = [1, 3, 5]        # minutes price must stay outside
-
-# Outcome measurement
+BREAKOUT_CONFIRM_MIN = [1, 3, 5]
 OUTCOME_HORIZONS_MIN = [5, 15, 30, 60, 120]
 COST_LEVELS_BPS = [2, 4, 6]
 PRIMARY_COST_BPS = 4
 
-# Promotion criteria
 MIN_OCCURRENCES = 100
 MIN_PROFIT_FACTOR = 1.10
 MAX_OUTLIER_DEPENDENCE = 0.30
@@ -80,136 +77,148 @@ def load_bars(path):
 
 
 # ============================================================
-# COMPRESSION DETECTION
+# EFFICIENT ROLLING STATISTICS
 # ============================================================
-def realized_vol(prices):
-    """Annualized-ish realized vol from log returns."""
-    if len(prices) < 3:
-        return 0.0
-    rets = []
-    for i in range(1, len(prices)):
-        if prices[i-1] > 0:
-            rets.append(math.log(prices[i] / prices[i-1]))
-    if not rets:
-        return 0.0
-    m = sum(rets) / len(rets)
-    return (sum((r - m)**2 for r in rets) / len(rets)) ** 0.5
-
-
-def rolling_range(highs, lows):
-    """Range in bps from high-low."""
-    if not highs or not lows:
-        return 0.0
-    h = max(highs)
-    l = min(lows)
-    mid = (h + l) / 2
-    if mid <= 0:
-        return 0.0
-    return ((h - l) / mid) * 10000
-
-
-def percentile_rank(values, current):
-    """What percentile is current in the values distribution?"""
-    if not values:
-        return 50.0
-    count_below = sum(1 for v in values if v <= current)
-    return (count_below / len(values)) * 100
-
-
-def detect_compression(bars):
+def precompute_rolling_stats(bars):
     """
-    Detect compression periods.
-
-    A bar is COMPRESSION if:
-    - realized volatility over each window is in bottom 20% of last 24h
-      AND
-    - range over each window is in bottom 20% of last 24h
-
-    Returns list of (bar_index, compression_score) for compressed bars.
+    Precompute realized vol and range for all windows.
+    Returns dict: (window_min, bar_index) -> value
     """
-    lookback_bars = LOOKBACK_HOURS * 60  # 24h in 1m bars
-    n = len(bars)
-    compressed = []
-
-    # Precompute close prices
     closes = [b.close for b in bars]
     highs = [b.high for b in bars]
     lows = [b.low for b in bars]
+    n = len(bars)
 
-    for i in range(lookback_bars, n):
-        # Check each window
+    stats = {}
+
+    for win in VOL_WINDOWS_MIN:
+        # Rolling realized vol using log returns
+        log_rets = [0.0] * n
+        for i in range(1, n):
+            if closes[i-1] > 0:
+                log_rets[i] = math.log(closes[i] / closes[i-1])
+
+        # Rolling mean and sum of squares
+        ret_sum = 0.0
+        ret_sq_sum = 0.0
+        q = deque()
+
+        for i in range(n):
+            q.append(log_rets[i])
+            ret_sum += log_rets[i]
+            ret_sq_sum += log_rets[i] ** 2
+            if len(q) > win:
+                old = q.popleft()
+                ret_sum -= old
+                ret_sq_sum -= old ** 2
+            if len(q) == win:
+                mean = ret_sum / win
+                var = ret_sq_sum / win - mean ** 2
+                stats[("vol", win, i)] = math.sqrt(max(0, var))
+
+    for win in RANGE_WINDOWS_MIN:
+        # Rolling high-low range in bps
+        high_q = deque()
+        low_q = deque()
+
+        for i in range(n):
+            high_q.append(highs[i])
+            low_q.append(lows[i])
+            if len(high_q) > win:
+                high_q.popleft()
+                low_q.popleft()
+            if len(high_q) == win:
+                h = max(high_q)
+                l = min(low_q)
+                mid = (h + l) / 2
+                if mid > 0:
+                    stats[("range", win, i)] = ((h - l) / mid) * 10000
+                else:
+                    stats[("range", win, i)] = 0.0
+
+    return stats
+
+
+def precompute_percentiles(stats, bars, lookback=LOOKBACK_BARS):
+    """
+    For each bar and each stat key, compute what percentile the current value
+    is in the trailing lookback window.
+
+    Returns dict: (key_type, window, bar_index) -> percentile (0-100)
+    """
+    n = len(bars)
+    percentiles = {}
+
+    stat_keys = set()
+    for k in stats:
+        stat_keys.add((k[0], k[1]))
+
+    for key_type, win in stat_keys:
+        # Collect values in order
+        values = []
+        for i in range(n):
+            v = stats.get((key_type, win, i))
+            if v is not None:
+                values.append((i, v))
+
+        # Sliding window percentile
+        q = deque()
+        for idx, val in values:
+            q.append((idx, val))
+            # Remove old entries
+            while q and q[0][0] < idx - lookback:
+                q.popleft()
+
+            if len(q) >= 5:  # need minimum samples
+                count_below = sum(1 for _, v in q if v <= val)
+                percentiles[(key_type, win, idx)] = (count_below / len(q)) * 100
+
+    return percentiles
+
+
+# ============================================================
+# COMPRESSION DETECTION (OPTIMIZED)
+# ============================================================
+def detect_compression(bars, stats, percentiles):
+    """
+    A bar is COMPRESSION if ALL vol windows are in bottom 20%
+    AND ALL range windows are in bottom 20% of last 24h.
+    """
+    n = len(bars)
+    compressed = []
+
+    for i in range(LOOKBACK_BARS, n):
         is_compression = True
 
+        # Check all vol windows
         for win in VOL_WINDOWS_MIN:
-            if i < win:
-                is_compression = False
-                break
-
-            # Current values
-            cur_prices = closes[i-win+1:i+1]
-            cur_vol = realized_vol(cur_prices)
-
-            # Historical distribution (last 24h)
-            hist_vols = []
-            for j in range(max(win, i - lookback_bars), i):
-                p = closes[j-win+1:j+1]
-                v = realized_vol(p)
-                if v > 0:
-                    hist_vols.append(v)
-
-            if not hist_vols:
-                continue
-
-            pct = percentile_rank(hist_vols, cur_vol)
-            if pct > COMPRESSION_PERCENTILE:
+            pct = percentiles.get(("vol", win, i))
+            if pct is None or pct > COMPRESSION_PERCENTILE:
                 is_compression = False
                 break
 
         if not is_compression:
             continue
 
+        # Check all range windows
         for win in RANGE_WINDOWS_MIN:
-            if i < win:
-                is_compression = False
-                break
-
-            cur_range = rolling_range(highs[i-win+1:i+1], lows[i-win+1:i+1])
-
-            hist_ranges = []
-            for j in range(max(win, i - lookback_bars), i):
-                r = rolling_range(highs[j-win+1:j+1], lows[j-win+1:j+1])
-                if r > 0:
-                    hist_ranges.append(r)
-
-            if not hist_ranges:
-                continue
-
-            pct = percentile_rank(hist_ranges, cur_range)
-            if pct > COMPRESSION_PERCENTILE:
+            pct = percentiles.get(("range", win, i))
+            if pct is None or pct > COMPRESSION_PERCENTILE:
                 is_compression = False
                 break
 
         if is_compression:
-            # Score: average percentile across vol and range
-            vol_pcts = []
-            range_pcts = []
+            # Score = average percentile across all metrics
+            pcts = []
             for win in VOL_WINDOWS_MIN:
-                cur_v = realized_vol(closes[i-win+1:i+1])
-                hist_v = [realized_vol(closes[j-win+1:j+1]) for j in range(max(win, i-lookback_bars), i)]
-                hist_v = [v for v in hist_v if v > 0]
-                if hist_v:
-                    vol_pcts.append(percentile_rank(hist_v, cur_v))
+                p = percentiles.get(("vol", win, i))
+                if p is not None:
+                    pcts.append(p)
             for win in RANGE_WINDOWS_MIN:
-                cur_r = rolling_range(highs[i-win+1:i+1], lows[i-win+1:i+1])
-                hist_r = [rolling_range(highs[j-win+1:j+1], lows[j-win+1:j+1]) for j in range(max(win, i-lookback_bars), i)]
-                hist_r = [r for r in hist_r if r > 0]
-                if hist_r:
-                    range_pcts.append(percentile_rank(hist_r, cur_r))
-
-            score = 0
-            all_pcts = vol_pcts + range_pcts
-            if all_pcts:
-                score = sum(all_pcts) / len(all_pcts)
+                p = percentiles.get(("range", win, i))
+                if p is not None:
+                    pcts.append(p)
+            score = sum(pcts) / len(pcts) if pcts else 0
             compressed.append((i, score))
 
     return compressed
@@ -233,13 +242,12 @@ class CompressionBox:
 @dataclass
 class Breakout:
     box: CompressionBox
-    direction: str        # "long" or "short"
-    breakout_idx: int     # bar index of breakout
+    direction: str
+    breakout_idx: int
     breakout_price: float
-    confirm_idx: int      # bar index after confirmation
+    confirm_idx: int
     confirm_price: float
     entry_price: float
-    # Outcomes
     fwd: dict = field(default_factory=dict)
     fwd_net: dict = field(default_factory=dict)
     mfe: float = 0.0
@@ -248,10 +256,6 @@ class Breakout:
 
 
 def build_compression_boxes(bars, compressed_indices):
-    """
-    Merge consecutive compressed bars into compression boxes.
-    Each box defines a range (high/low) during the compression period.
-    """
     if not compressed_indices:
         return []
 
@@ -270,12 +274,10 @@ def build_compression_boxes(bars, compressed_indices):
             box_low = bars[i].low
             scores = [score_map[i]]
         elif i == start + len(scores):
-            # Consecutive
             box_high = max(box_high, bars[i].high)
             box_low = min(box_low, bars[i].low)
             scores.append(score_map[i])
         else:
-            # Gap — save current, start new
             if box_high > box_low:
                 mid = (box_high + box_low) / 2
                 rng = ((box_high - box_low) / mid) * 10000 if mid > 0 else 0
@@ -290,7 +292,6 @@ def build_compression_boxes(bars, compressed_indices):
             box_low = bars[i].low
             scores = [score_map[i]]
 
-    # Last box
     if start is not None and box_high > box_low:
         mid = (box_high + box_low) / 2
         rng = ((box_high - box_low) / mid) * 10000 if mid > 0 else 0
@@ -305,28 +306,18 @@ def build_compression_boxes(bars, compressed_indices):
 
 
 def detect_breakouts(bars, boxes):
-    """
-    For each compression box, detect breakouts.
-
-    LONG: price breaks above box high
-    SHORT: price breaks below box low
-
-    Confirmation: price stays outside for X minutes.
-    Entry: close price after confirmation window.
-    """
     breakouts = []
+    used_boxes = set()
 
     for box in boxes:
-        # Look for breakouts starting from end of compression
         search_start = box.end_idx + 1
-        search_end = min(search_start + 120, len(bars))  # look within 2 hours
+        search_end = min(search_start + 120, len(bars))
 
         for i in range(search_start, search_end):
             bar = bars[i]
 
-            # Check long breakout
-            if bar.close > box.high:
-                # Check confirmation windows
+            # Long breakout
+            if bar.close > box.high and box.start_idx not in used_boxes:
                 for conf_min in BREAKOUT_CONFIRM_MIN:
                     if i + conf_min >= len(bars):
                         continue
@@ -344,10 +335,11 @@ def detect_breakouts(bars, boxes):
                             confirm_idx=entry_idx, confirm_price=bars[entry_idx].close,
                             entry_price=entry_price,
                         ))
-                    break  # Only use the shortest confirmation that works
+                        used_boxes.add(box.start_idx)
+                    break
 
-            # Check short breakout
-            elif bar.close < box.low:
+            # Short breakout
+            elif bar.close < box.low and box.start_idx not in used_boxes:
                 for conf_min in BREAKOUT_CONFIRM_MIN:
                     if i + conf_min >= len(bars):
                         continue
@@ -365,11 +357,8 @@ def detect_breakouts(bars, boxes):
                             confirm_idx=entry_idx, confirm_price=bars[entry_idx].close,
                             entry_price=entry_price,
                         ))
+                        used_boxes.add(box.start_idx)
                     break
-
-            # Only one breakout per direction per box
-            if breakouts and breakouts[-1].box is box:
-                break
 
     return breakouts
 
@@ -378,7 +367,6 @@ def detect_breakouts(bars, boxes):
 # OUTCOME MEASUREMENT
 # ============================================================
 def measure_outcomes(breakouts, bars):
-    """Measure forward returns for each breakout."""
     max_h = max(OUTCOME_HORIZONS_MIN)
 
     for bo in breakouts:
@@ -391,32 +379,26 @@ def measure_outcomes(breakouts, bars):
 
         for i in range(start_idx, end_idx):
             bar = bars[i]
-            elapsed = i - start_idx  # minutes
+            elapsed = i - start_idx
 
             if bo.direction == "long":
                 ret_bps = ((bar.close - entry) / entry) * 10000
-            else:
-                ret_bps = ((entry - bar.close) / entry) * 10000
-
-            # MFE / MAE
-            if bo.direction == "long":
                 high_ret = ((bar.high - entry) / entry) * 10000
                 low_ret = ((bar.low - entry) / entry) * 10000
             else:
+                ret_bps = ((entry - bar.close) / entry) * 10000
                 high_ret = ((entry - bar.low) / entry) * 10000
                 low_ret = ((entry - bar.high) / entry) * 10000
 
             bo.mfe = max(bo.mfe, high_ret)
             bo.mae = min(bo.mae, low_ret)
 
-            # Forward returns at horizons
             for h in OUTCOME_HORIZONS_MIN:
                 if elapsed >= h and h not in bo.fwd:
                     bo.fwd[h] = ret_bps
                     for c in COST_LEVELS_BPS:
                         bo.fwd_net[(h, c)] = ret_bps - c
 
-            # Time to positive
             if bo.ttp is None and ret_bps > 0:
                 bo.ttp = elapsed
 
@@ -425,15 +407,19 @@ def measure_outcomes(breakouts, bars):
 # BASELINES
 # ============================================================
 def compute_baselines(bars, breakouts):
-    """Compute mandatory baselines."""
     import random
     random.seed(42)
 
     if len(bars) < 100 or not breakouts:
         return {}
 
-    n_samples = min(2000, len(breakouts) * 10)
+    n_samples = min(5000, len(breakouts) * 10)
     horizons = OUTCOME_HORIZONS_MIN
+    min_idx = LOOKBACK_BARS + max(horizons)
+    max_idx = len(bars) - max(horizons) - 1
+
+    if max_idx <= min_idx:
+        return {}
 
     def forward_return(entry_idx, direction, horizon):
         target_idx = min(entry_idx + horizon, len(bars) - 1)
@@ -446,57 +432,47 @@ def compute_baselines(bars, breakouts):
         else:
             return ((entry_px - exit_px) / entry_px) * 10000
 
-    # Baseline A: Random timestamps
     baselines = {"random": {h: [] for h in horizons}}
     for _ in range(n_samples):
-        idx = random.randint(LOOKBACK_HARS * 60, len(bars) - max(horizons) - 1)
+        idx = random.randint(min_idx, max_idx)
         d = random.choice(["long", "short"])
         for h in horizons:
             baselines["random"][h].append(forward_return(idx, d, h))
 
-    # Baseline B: Same volatility (match compression vol)
+    # Same-vol baseline
     baselines["same_vol"] = {h: [] for h in horizons}
-    # Compute vol for each bar's context
-    bar_vols = []
-    for i in range(60, len(bars)):
-        v = realized_vol([bars[j].close for j in range(i-30, i)])
-        bar_vols.append((i, v))
-
-    # Get compression vol distribution
-    comp_vols = []
-    for bo in breakouts:
-        idx = bo.box.end_idx
-        if idx >= 60:
-            v = realized_vol([bars[j].close for j in range(max(0,idx-30), idx+1)])
-            comp_vols.append(v)
-
-    if comp_vols and bar_vols:
-        vol_sorted = sorted(set(v for _, v in bar_vols if v > 0))
+    # Sample some compression-period vol values
+    comp_indices = [bo.box.end_idx for bo in breakouts]
+    if comp_indices:
         for _ in range(n_samples):
-            target_vol = random.choice(comp_vols)
-            # Find bars with similar vol
-            candidates = [(i, v) for i, v in bar_vols if abs(v - target_vol) < target_vol * 0.5]
-            if candidates:
-                idx, _ = random.choice(candidates)
-                d = random.choice(["long", "short"])
-                for h in horizons:
-                    baselines["same_vol"][h].append(forward_return(idx, d, h))
+            ci = random.choice(comp_indices)
+            # Find a bar with similar vol (±50%)
+            for attempt in range(20):
+                idx = random.randint(min_idx, max_idx)
+                # Simple proxy: use close-to-close absolute return
+                if idx >= 30 and ci >= 30:
+                    ci_ret = abs(bars[ci].close - bars[ci-30].close) / bars[ci-30].close if bars[ci-30].close > 0 else 0
+                    idx_ret = abs(bars[idx].close - bars[idx-30].close) / bars[idx-30].close if bars[idx-30].close > 0 else 0
+                    if ci_ret > 0 and abs(idx_ret - ci_ret) < ci_ret * 0.5:
+                        d = random.choice(["long", "short"])
+                        for h in horizons:
+                            baselines["same_vol"][h].append(forward_return(idx, d, h))
+                        break
 
-    # Baseline C: Opposite direction
+    # Opposite direction
     baselines["opposite"] = {h: [] for h in horizons}
     for bo in breakouts:
         opp = "short" if bo.direction == "long" else "long"
         for h in horizons:
             baselines["opposite"][h].append(forward_return(bo.confirm_idx, opp, h))
 
-    # Baseline D: Drift (long only)
+    # Drift
     baselines["drift"] = {h: [] for h in horizons}
     for _ in range(n_samples):
-        idx = random.randint(LOOKBACK_HARS * 60, len(bars) - max(horizons) - 1)
+        idx = random.randint(min_idx, max_idx)
         for h in horizons:
             baselines["drift"][h].append(forward_return(idx, "long", h))
 
-    # Compute means
     result = {}
     for name, data in baselines.items():
         result[name] = {}
@@ -538,7 +514,6 @@ def profit_factor(returns):
 
 
 def analyze_family(breakouts, direction="all"):
-    """Analyze a family of breakouts."""
     if direction != "all":
         bs = [b for b in breakouts if b.direction == direction]
     else:
@@ -550,7 +525,6 @@ def analyze_family(breakouts, direction="all"):
 
     result = {"count": count, "direction": direction}
 
-    # Returns by horizon
     for h in OUTCOME_HORIZONS_MIN:
         gross = [b.fwd.get(h, 0) for b in bs if h in b.fwd]
         if not gross:
@@ -569,19 +543,16 @@ def analyze_family(breakouts, direction="all"):
             result[f"winrate_{h}m_{c}bps"] = len(wins) / len(net) if net else 0
             result[f"pf_{h}m_{c}bps"] = profit_factor(net)
 
-    # MFE / MAE
     mfes = [b.mfe for b in bs if b.mfe > 0]
     maes = [b.mae for b in bs if b.mae < 0]
     result["mean_mfe"] = safe_mean(mfes)
     result["mean_mae"] = safe_mean(maes)
     result["mfe_mae_ratio"] = abs(safe_mean(mfes) / safe_mean(maes)) if maes and safe_mean(maes) != 0 else 0
 
-    # Time to positive
     ttps = [b.ttp for b in bs if b.ttp is not None]
     result["median_ttp"] = safe_median(ttps)
     result["ttp_count"] = len(ttps)
 
-    # Outlier dependence
     for h in [30, 60, 120]:
         gross = [b.fwd.get(h, 0) for b in bs if h in b.fwd]
         if len(gross) < 10:
@@ -592,16 +563,26 @@ def analyze_family(breakouts, direction="all"):
         top5 = sorted(gross, reverse=True)[:max(1, len(gross) // 20)]
         result[f"outlier_dep_{h}m"] = sum(top5) / total_pnl if total_pnl > 0 else 0
 
-    # Stability: first half vs second half
     bs_sorted = sorted(bs, key=lambda b: b.confirm_idx)
     mid = len(bs_sorted) // 2
     for label, chunk in [("first_half", bs_sorted[:mid]), ("second_half", bs_sorted[mid:])]:
-        for h in [30, 60]:
+        for h in [30, 60, 120]:
             gross = [b.fwd.get(h, 0) for b in chunk if h in b.fwd]
             if gross:
                 result[f"{label}_mean_{h}m"] = safe_mean(gross)
 
-    # Compression box stats
+    # Quarterly stability (for 11-month dataset)
+    if count >= 20:
+        # Split into ~3 month chunks
+        chunk_size = max(1, count // 4)
+        for qi in range(4):
+            chunk = bs_sorted[qi*chunk_size:(qi+1)*chunk_size]
+            for h in [60]:
+                gross = [b.fwd.get(h, 0) for b in chunk if h in b.fwd]
+                if gross:
+                    result[f"q{qi+1}_mean_{h}m"] = safe_mean(gross)
+                    result[f"q{qi+1}_count"] = len(chunk)
+
     durations = [b.box.duration_min for b in bs]
     ranges = [b.box.range_bps for b in bs]
     result["mean_box_duration"] = safe_mean(durations)
@@ -610,13 +591,7 @@ def analyze_family(breakouts, direction="all"):
     return result
 
 
-# ============================================================
-# FAILURE MODE CLASSIFICATION
-# ============================================================
 def classify_failure(breakouts, fam_all, baselines):
-    """Classify the failure mode."""
-    modes = []
-
     if not breakouts:
         return ["No breakout events detected after compression"]
 
@@ -624,17 +599,15 @@ def classify_failure(breakouts, fam_all, baselines):
     if fam is None:
         return ["No analyzable breakout events"]
 
+    modes = []
     total = fam["count"]
     primary_net = fam.get(f"net_mean_30m_{PRIMARY_COST_BPS}bps", 0)
-    primary_pf = fam.get(f"pf_30m_{PRIMARY_COST_BPS}bps", 0)
     mfe_mae = fam.get("mfe_mae_ratio", 0)
 
-    # Check if expansion exists
     gross_30 = fam.get("gross_mean_30m", 0)
     if abs(gross_30) < 1:
         modes.append("No meaningful expansion after compression (|mean 30m| < 1 bps)")
 
-    # Check direction
     fam_l = analyze_family(breakouts, "long")
     fam_s = analyze_family(breakouts, "short")
     if fam_l and fam_s:
@@ -645,15 +618,12 @@ def classify_failure(breakouts, fam_all, baselines):
         elif gl <= 0 and gs <= 0:
             modes.append("Both directions negative — no directional edge")
 
-    # Check costs
     if gross_30 > 0 and primary_net < 0:
         modes.append("Expansion exists but costs kill it")
 
-    # Check MFE/MAE
     if mfe_mae < 1:
         modes.append("MFE < MAE — adverse excursion exceeds favorable")
 
-    # Check if only one side works
     if fam_l and not fam_s:
         modes.append("Only long breakouts exist (possible BTC drift)")
     elif fam_s and not fam_l:
@@ -665,11 +635,7 @@ def classify_failure(breakouts, fam_all, baselines):
     return modes
 
 
-# ============================================================
-# REPORT GENERATOR
-# ============================================================
 def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, failure_modes):
-    """Generate the compression→expansion research report."""
     lines = []
     lines.append("# COMPRESSION → EXPANSION REPORT")
     lines.append("")
@@ -677,52 +643,43 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
     lines.append(f"**Generated:** {time.strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("")
 
-    # ---- 1. Data Summary ----
     lines.append("## 1. Data Summary")
     lines.append("")
-    duration_hrs = (bars[-1].timestamp - bars[0].timestamp) / 3600
-    lines.append(f"- **Source:** Binance BTC/USDT 1-minute bars")
-    lines.append(f"- **Bars:** {len(bars)}")
-    lines.append(f"- **Duration:** {duration_hrs:.1f} hours")
-    lines.append(f"- **Period:** {time.strftime('%Y-%m-%d %H:%M', time.gmtime(bars[0].timestamp))} to {time.strftime('%Y-%m-%d %H:%M', time.gmtime(bars[-1].timestamp))} UTC")
+    duration_days = (bars[-1].timestamp - bars[0].timestamp) / 86400
+    lines.append(f"- **Source:** Binance BTC/USDT 1-minute bars (historical)")
+    lines.append(f"- **Bars:** {len(bars):,}")
+    lines.append(f"- **Duration:** {duration_days:.0f} days ({duration_days/30:.1f} months)")
+    lines.append(f"- **Period:** {time.strftime('%Y-%m-%d', time.gmtime(bars[0].timestamp))} to {time.strftime('%Y-%m-%d', time.gmtime(bars[-1].timestamp))} UTC")
     lines.append("")
 
-    # ---- 2. Compression Definition ----
     lines.append("## 2. Compression Definition")
     lines.append("")
     lines.append("**Compression = market storing energy**")
     lines.append("")
     lines.append("A 1-minute bar is in COMPRESSION state if:")
-    lines.append("")
     lines.append(f"- Realized volatility (over {VOL_WINDOWS_MIN} min windows) is in bottom {COMPRESSION_PERCENTILE}% of last {LOOKBACK_HOURS}h")
     lines.append(f"  AND")
     lines.append(f"- High-low range (over {RANGE_WINDOWS_MIN} min windows) is in bottom {COMPRESSION_PERCENTILE}% of last {LOOKBACK_HOURS}h")
     lines.append("")
-    lines.append("Consecutive compressed bars form a **compression box** (defined by the high/low of the compressed period).")
+    lines.append("Consecutive compressed bars form a **compression box** (high/low of the compressed period).")
     lines.append("")
 
-    # Compression stats
-    comp_bars = sum(1 for b in breakouts for _ in range(b.box.duration_min)) if breakouts else 0
-    lines.append(f"- **Total compression bars detected:** {comp_bars} ({comp_bars/len(bars)*100:.1f}% of data)")
-    lines.append(f"- **Compression boxes:** {len(set(b.box.start_idx for b in breakouts))}")
+    comp_bars_count = sum(1 for b in breakouts for _ in range(b.box.duration_min)) if breakouts else 0
+    unique_boxes = len(set(id(b.box) for b in breakouts))
+    lines.append(f"- **Compression bars:** {comp_bars_count:,} ({comp_bars_count/len(bars)*100:.1f}% of data)")
+    lines.append(f"- **Compression boxes:** {unique_boxes}")
     lines.append("")
 
-    # ---- 3. Breakout Logic ----
     lines.append("## 3. Breakout Logic")
     lines.append("")
-    lines.append("**LONG breakout:** Price closes above compression box high")
-    lines.append("")
-    lines.append("**SHORT breakout:** Price closes below compression box low")
-    lines.append("")
-    lines.append(f"**Confirmation:** Price must remain outside the box for {BREAKOUT_CONFIRM_MIN} minutes")
-    lines.append("")
-    lines.append("**Entry:** Close price after confirmation window (NOT at breakout)")
+    lines.append("**LONG:** Price closes above compression box high")
+    lines.append("**SHORT:** Price closes below compression box low")
+    lines.append(f"**Confirmation:** Price stays outside box for {BREAKOUT_CONFIRM_MIN} min")
+    lines.append("**Entry:** Close price AFTER confirmation window")
     lines.append("")
 
-    # ---- 4. Results vs Baselines ----
     lines.append("## 4. Results vs Baselines")
     lines.append("")
-
     total = len(breakouts)
     longs = [b for b in breakouts if b.direction == "long"]
     shorts = [b for b in breakouts if b.direction == "short"]
@@ -735,7 +692,6 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
         lines.append("⚠️ **Insufficient breakouts for meaningful analysis.**")
         lines.append("")
     else:
-        # Results table
         for direction, fam in [("All", fam_all), ("Long", fam_long), ("Short", fam_short)]:
             if fam is None:
                 continue
@@ -759,7 +715,19 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
             lines.append(f"- **Mean box range:** {fam.get('mean_box_range_bps', 0):.1f} bps")
             lines.append("")
 
-        # Baseline comparison
+            # Quarterly stability
+            q_keys = [k for k in fam.keys() if k.startswith("q") and "_mean_" in k]
+            if q_keys:
+                lines.append("**Quarterly stability (60m horizon):**")
+                lines.append("")
+                for qi in range(1, 5):
+                    qm = fam.get(f"q{qi}_mean_60m")
+                    qc = fam.get(f"q{qi}_count")
+                    if qm is not None:
+                        lines.append(f"- Q{qi}: {qm:.2f} bps (N={qc})")
+                lines.append("")
+
+        # Baselines
         lines.append("### Baseline Comparison")
         lines.append("")
         if baselines:
@@ -774,7 +742,6 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
                 lines.append(f"| {name} | {m30:.2f} | {m60:.2f} | {m120:.2f} | {cnt} |")
             lines.append("")
 
-            # Edge vs baselines
             if fam_all:
                 setup_60 = fam_all.get("gross_mean_60m", 0)
                 lines.append("**Edge vs baselines (60m horizon):**")
@@ -786,7 +753,6 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
                     lines.append(f"- {beats} vs {name}: {diff:+.2f} bps (setup={setup_60:.2f}, baseline={b_mean:.2f})")
                 lines.append("")
 
-    # ---- 5. Cost Analysis ----
     lines.append("## 5. Cost Analysis")
     lines.append("")
     if fam_all:
@@ -804,11 +770,10 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
         lines.append("No breakouts to analyze.")
         lines.append("")
 
-    # ---- 6. Stability ----
     lines.append("## 6. Stability")
     lines.append("")
     if fam_all:
-        for h in [30, 60]:
+        for h in [30, 60, 120]:
             fh = fam_all.get(f"first_half_mean_{h}m", None)
             sh = fam_all.get(f"second_half_mean_{h}m", None)
             if fh is not None and sh is not None:
@@ -816,21 +781,18 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
                 lines.append(f"- **{h}m:** First half={fh:.2f} bps, Second half={sh:.2f} bps {sign_match}")
         lines.append("")
     else:
-        lines.append("Insufficient data for stability analysis.")
+        lines.append("Insufficient data.")
         lines.append("")
 
-    # ---- 7. Failure Classification ----
     lines.append("## 7. Failure Classification")
     lines.append("")
     for mode in failure_modes:
         lines.append(f"- {mode}")
     lines.append("")
 
-    # ---- 8. Final Verdict ----
     lines.append("## 8. Final Verdict")
     lines.append("")
 
-    # Check promotion criteria
     criteria = []
     if fam_all:
         c1 = fam_all["count"] >= MIN_OCCURRENCES
@@ -848,18 +810,15 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
         c4 = mfe_mae > 1
         criteria.append(("MFE >> MAE", c4, f"{mfe_mae:.2f}"))
 
-        # Outlier dependence
         od = fam_all.get("outlier_dep_60m", 0)
         c5 = od < MAX_OUTLIER_DEPENDENCE
         criteria.append(("Outlier dep < 30%", c5, f"{od:.1%}"))
 
-        # Stability
         fh = fam_all.get("first_half_mean_60m", 0)
         sh = fam_all.get("second_half_mean_60m", 0)
         c6 = (fh > 0 and sh > 0) or (fh < 0 and sh < 0)
         criteria.append(("Same sign across halves", c6, f"1st={fh:.2f}, 2nd={sh:.2f}"))
 
-        # Beats baselines
         if baselines:
             setup_60 = fam_all.get("gross_mean_60m", 0)
             rand_60 = baselines.get("random", {}).get(60, {}).get("mean", 0)
@@ -889,17 +848,16 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
         lines.append(f"Only {total} breakouts detected. Need ≥{MIN_OCCURRENCES} for promotion.")
         lines.append("")
 
-    # ---- 9. Next Action ----
     lines.append("## 9. Next Action")
     lines.append("")
     if fam_all and fam_all["count"] >= MIN_OCCURRENCES:
         primary_net = fam_all.get(f"net_mean_30m_{PRIMARY_COST_BPS}bps", 0)
         if primary_net >= 0:
-            lines.append("**ONE:** Collect 7+ days of 1m data to confirm with ≥1000 events across multiple market regimes.")
+            lines.append("**ONE:** Validate on out-of-sample data or different asset (ETH, SOL).")
         else:
             lines.append("**ONE:** This path is closed. Compression → expansion does not produce edge at these definitions.")
     else:
-        lines.append("**ONE:** Collect significantly more data (3-7 days of 1m bars) to reach minimum sample size, then re-run.")
+        lines.append("**ONE:** This path is closed. Insufficient events after full dataset analysis.")
     lines.append("")
     lines.append("---")
     lines.append("*No parameters were tuned after seeing results. All thresholds are structural assumptions.*")
@@ -911,9 +869,6 @@ def generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, fa
 # ============================================================
 # MAIN
 # ============================================================
-LOOKBACK_HARS = LOOKBACK_HOURS  # alias for baseline code
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, help="Path to 1m OHLCV CSV")
@@ -924,54 +879,70 @@ def main():
         print(f"ERROR: {args.input} not found")
         sys.exit(1)
 
-    # Load data
     print(f"Loading bars from {args.input}...")
+    t0 = time.time()
     bars = load_bars(args.input)
     if not bars:
         print("ERROR: No valid bars found")
         sys.exit(1)
 
     duration = (bars[-1].timestamp - bars[0].timestamp) / 3600
-    print(f"Loaded {len(bars)} bars, {duration:.1f} hours")
+    print(f"Loaded {len(bars):,} bars, {duration/24:.0f} days ({time.time()-t0:.1f}s)")
 
-    # Step 1: Detect compression
-    print("Step 1: Detecting compression periods...")
-    compressed = detect_compression(bars)
-    print(f"  Found {len(compressed)} compressed bars")
+    # Step 1: Precompute rolling stats
+    print("Step 1: Precomputing rolling statistics...")
+    t0 = time.time()
+    stats = precompute_rolling_stats(bars)
+    print(f"  {len(stats):,} stat values computed ({time.time()-t0:.1f}s)")
 
-    # Step 2: Build compression boxes
-    print("Step 2: Building compression boxes...")
+    # Step 2: Precompute percentiles
+    print("Step 2: Computing rolling percentiles...")
+    t0 = time.time()
+    percentiles = precompute_percentiles(stats, bars)
+    print(f"  {len(percentiles):,} percentile values ({time.time()-t0:.1f}s)")
+
+    # Step 3: Detect compression
+    print("Step 3: Detecting compression periods...")
+    t0 = time.time()
+    compressed = detect_compression(bars, stats, percentiles)
+    print(f"  {len(compressed):,} compressed bars ({time.time()-t0:.1f}s)")
+
+    # Step 4: Build boxes
+    print("Step 4: Building compression boxes...")
     boxes = build_compression_boxes(bars, compressed)
-    print(f"  Built {len(boxes)} compression boxes")
+    print(f"  {len(boxes)} compression boxes")
 
-    # Step 3: Detect breakouts
-    print("Step 3: Detecting breakouts...")
+    # Step 5: Detect breakouts
+    print("Step 5: Detecting breakouts...")
     breakouts = detect_breakouts(bars, boxes)
-    print(f"  Found {len(breakouts)} breakouts")
+    print(f"  {len(breakouts)} breakouts")
 
-    # Step 4: Measure outcomes
-    print("Step 4: Measuring outcomes...")
+    # Step 6: Measure outcomes
+    print("Step 6: Measuring outcomes...")
+    t0 = time.time()
     measure_outcomes(breakouts, bars)
+    print(f"  Done ({time.time()-t0:.1f}s)")
 
-    # Step 5: Compute baselines
-    print("Step 5: Computing baselines...")
+    # Step 7: Baselines
+    print("Step 7: Computing baselines...")
+    t0 = time.time()
     baselines = compute_baselines(bars, breakouts)
+    print(f"  Done ({time.time()-t0:.1f}s)")
 
-    # Step 6: Analyze
-    print("Step 6: Analyzing...")
+    # Step 8: Analyze
+    print("Step 8: Analyzing...")
     fam_all = analyze_family(breakouts, "all")
     fam_long = analyze_family(breakouts, "long")
     fam_short = analyze_family(breakouts, "short")
 
-    # Step 7: Classify failures
-    print("Step 7: Classifying failure modes...")
+    # Step 9: Failure classification
     failure_modes = classify_failure(breakouts, fam_all, baselines)
 
-    # Step 8: Generate report
-    print("Step 8: Generating report...")
+    # Step 10: Report
+    print("Step 9: Generating report...")
     report = generate_report(breakouts, baselines, bars, fam_all, fam_long, fam_short, failure_modes)
 
-    output_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), args.output)
+    output_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), args.output)
     with open(output_path, "w") as f:
         f.write(report)
     print(f"\nReport written to: {output_path}")
