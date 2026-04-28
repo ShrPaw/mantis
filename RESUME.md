@@ -2,7 +2,7 @@
 
 **Project:** MANTIS — Real-time BTC microstructure dashboard + auction failure edge validation
 **Platform:** Hyperliquid DEX (BTC/USD perpetuals)
-**Status:** Data collection complete, analysis pending
+**Status:** Compression→Expansion validated — NO EDGE. Two hypotheses closed.
 **Last Updated:** 2026-04-28
 
 ---
@@ -150,11 +150,89 @@ Hyperliquid DEX (wss://api.hyperliquid.xyz/ws)
 
 ---
 
-## Next Steps (Priority Order)
+## Session 3 — Compression → Expansion Validation
 
-1. **Check if collection completed:** `wc -l data/research/trades.jsonl`
-2. **Run analysis:** `python3 -m research.auction_failure.replay --input data/research/trades.jsonl --format trades`
-3. **Review report:** Check `AUCTION_FAILURE_RESEARCH_REPORT.md`
-4. **Apply promotion criteria** — almost certainly no class will pass
-5. **State conclusion:** "No edge at current assumptions" or "Insufficient data"
-6. **STOP.** Do not tune. Do not optimize. Falsification exercise is over.
+### Hypothesis
+"Edge exists in volatility compression followed by expansion."
+Periods of low volatility + tight range → breakout → directional continuation.
+
+### Data
+- **Source:** Binance BTC/USDT 1-minute bars (historical)
+- **Bars:** 482,400 (335 days, 2025-05-01 to 2026-03-31)
+- **File:** `data/historical/btcusdt_1m.csv` (41MB)
+
+### Method
+- Compression = realized vol AND range in bottom 20% of trailing 24h
+- Breakout = price closes beyond compression box
+- Confirmation = price stays outside for 1-5 minutes
+- Entry = close after confirmation window
+- Horizons: 5m, 15m, 30m, 60m, 120m
+- Baselines: random, same-vol, drift, opposite direction
+- Cost assumption: 4 bps round-trip
+
+### Results
+- **3,374 breakouts** (1,691 long, 1,683 short)
+- **Gross mean 30m:** -0.63 bps (essentially zero)
+- **Net mean 30m @4bps:** -4.63 bps
+- **PF @4bps:** 0.55
+- **MFE/MAE:** 1.01 (coin flip)
+- **Opposite direction baseline beats the strategy** (+0.66 bps vs -0.65 bps at 60m)
+- Longs: negative at all horizons (MFE/MAE 0.87)
+- Shorts: slightly positive at 120m (+3.31 bps gross) but still negative after costs
+
+### Failure Classification
+**No meaningful expansion after compression.** Price after compression is random — no directional signal. The "stored energy" metaphor does not hold for BTC at 1m resolution.
+
+### Verdict
+**❌ NO EDGE. Path closed.**
+
+### Promotion Criteria
+| Criterion | Status |
+|-----------|--------|
+| Occurrences ≥ 100 | ✅ (3,374) |
+| Mean net @4bps ≥ 0 | ❌ (-4.63 bps) |
+| PF > 1.1 | ❌ (0.55) |
+| MFE >> MAE | ✅ (1.01) |
+| Beats random | ✅ |
+| Beats same-vol | ❌ |
+| Beats opposite | ❌ |
+| Stability | ✅ (consistent sign) |
+
+---
+
+## Cumulative Verdict (Sessions 1-3)
+
+| Hypothesis | Events | Verdict |
+|------------|--------|---------|
+| Auction failure (4 detectors) | ~25-30 | ❌ Insufficient data |
+| Expansion continuation | 4-64 | ❌ Insufficient + negative |
+| Compression → expansion | 3,374 | ❌ No meaningful expansion |
+
+**Two structural hypotheses tested. Both closed. No edge found.**
+
+---
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `research/auction_failure/` | Session 1-2 module (auction failure) |
+| `research/compression_expansion/analyze.py` | Session 3 module (compression→expansion) |
+| `data/historical/btcusdt_1m.csv` | 11 months of BTC 1m bars (Binance) |
+| `COMPRESSION_EXPANSION_REPORT.md` | Session 3 report |
+| `AUCTION_FAILURE_RESEARCH_REPORT.md` | Session 2 report |
+| `FORENSIC_AUDIT_REPORT.md` | Session 1 audit of old 8-detector system |
+
+---
+
+## Next Steps
+
+**This project has exhausted its structural hypotheses.**
+
+If continuing, the ONLY legitimate path is a fundamentally different hypothesis — not a variant of compression, expansion, or auction failure. Possible directions:
+- Cross-asset lead-lag (ETH leads BTC?)
+- Order book imbalance (requires L2 data)
+- Funding rate regimes (requires derivatives data)
+- Time-of-day effects (requires multi-month intraday data)
+
+**Do NOT tune existing hypotheses. They are closed.**
