@@ -11,6 +11,13 @@ echo "║  Source: Hyperliquid DEX (no API key)    ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 
+# SPE Configuration (Observation-Only Mode)
+export SPE_ENABLED="${SPE_ENABLED:-true}"
+export SPE_OBSERVATION_ONLY="${SPE_OBSERVATION_ONLY:-true}"
+echo "  SPE Module: $([ "$SPE_ENABLED" = "true" ] && echo "ENABLED" || echo "DISABLED")"
+echo "  SPE Mode:   $([ "$SPE_OBSERVATION_ONLY" = "true" ] && echo "OBSERVATION-ONLY" || echo "EXECUTION")"
+echo ""
+
 # Backend
 echo "[1/2] Starting backend on :8000 ..."
 cd "$DIR/backend"

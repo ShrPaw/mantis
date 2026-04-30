@@ -36,6 +36,13 @@ from .models import (
     ScoreBreakdown,
 )
 
+# SPE Module (feature-flagged)
+try:
+    from .spe import SPEOrchestrator, SPEConfig, SPEEvent, SPESignal
+    _SPE_AVAILABLE = True
+except ImportError:
+    _SPE_AVAILABLE = False
+
 __all__ = [
     "EventManager",
     "EventEngineConfig",
@@ -51,3 +58,6 @@ __all__ = [
     "ForwardOutcome",
     "ScoreBreakdown",
 ]
+
+if _SPE_AVAILABLE:
+    __all__.extend(["SPEOrchestrator", "SPEConfig", "SPEEvent", "SPESignal"])

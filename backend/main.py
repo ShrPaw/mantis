@@ -141,7 +141,14 @@ def on_trade(trade: dict):
 
             detected = event_mgr.on_trade(price, qty, delta, ts)
             if detected:
-                asyncio.ensure_future(broadcast({"type": "event_detected", "data": detected}))
+                # Separate SPE events from regular events
+                spe_events = [d for d in detected if isinstance(d, dict) and d.get("event_type") == "structural_pressure_execution"]
+                regular_events = [d for d in detected if not (isinstance(d, dict) and d.get("event_type") == "structural_pressure_execution")]
+
+                if regular_events:
+                    asyncio.ensure_future(broadcast({"type": "event_detected", "data": regular_events}))
+                if spe_events:
+                    asyncio.ensure_future(broadcast({"type": "spe_detected", "data": spe_events}))
         except Exception as e:
             logger.debug(f"Event Engine error (non-fatal): {e}")
 
@@ -205,6 +212,20 @@ async def metrics_broadcaster():
                     })
                 except Exception:
                     pass
+
+                # SPE stats broadcast (observation-only)
+                if event_mgr.spe is not None:
+                    try:
+                        await broadcast({
+                            "type": "spe_stats",
+                            "data": {
+                                **event_mgr.spe.get_stats(),
+                                "observation_only": event_mgr.spe_observation_only,
+                                "layer_stats": event_mgr.get_spe_layer_stats(),
+                            },
+                        })
+                    except Exception:
+                        pass
         except Exception as e:
             logger.error(f"Broadcast error: {e}")
 
@@ -277,6 +298,19 @@ async def websocket_endpoint(ws: WebSocket):
                 init_data["events"] = []
                 init_data["event_stats"] = {}
 
+            # Add SPE data if available
+            if event_mgr.spe is not None:
+                try:
+                    init_data["spe_events"] = event_mgr.get_spe_events(limit=50)
+                    init_data["spe_stats"] = {
+                        **event_mgr.spe.get_stats(),
+                        "observation_only": event_mgr.spe_observation_only,
+                        "layer_stats": event_mgr.get_spe_layer_stats(),
+                    }
+                except Exception:
+                    init_data["spe_events"] = []
+                    init_data["spe_stats"] = {}
+
         await ws.send_text(json.dumps({"type": "init", "data": init_data}))
 
         while True:
@@ -311,6 +345,19 @@ async def health():
             result["pending_outcomes"] = stats["pending_outcomes"]
         except Exception:
             result["event_engine"] = "error"
+
+        # SPE status
+        if event_mgr.spe is not None:
+            result["spe"] = "active"
+            result["spe_observation_only"] = event_mgr.spe_observation_only
+            try:
+                spe_stats = event_mgr.spe.get_stats()
+                result["spe_evaluations"] = spe_stats["signals_evaluated"]
+                result["spe_events"] = spe_stats["events_emitted"]
+            except Exception:
+                pass
+        else:
+            result["spe"] = "disabled" if event_mgr.spe_enabled else "not_loaded"
     return result
 
 
@@ -348,6 +395,49 @@ async def events_list(limit: int = 20):
         }
     except Exception:
         return {"events": [], "stats": {}}
+
+
+@app.get("/spe/events")
+async def spe_events_list(limit: int = 20):
+    """Return recent SPE events as JSON (observation-only)."""
+    if event_mgr is None or event_mgr.spe is None:
+        return {"spe_events": [], "spe_stats": {}}
+    try:
+        return {
+            "spe_events": event_mgr.get_spe_events(limit=limit),
+            "spe_stats": {
+                **event_mgr.spe.get_stats(),
+                "observation_only": event_mgr.spe_observation_only,
+                "layer_stats": event_mgr.get_spe_layer_stats(),
+            },
+        }
+    except Exception:
+        return {"spe_events": [], "spe_stats": {}}
+
+
+@app.get("/spe/layers")
+async def spe_layer_stats():
+    """Return SPE layer pass/fail statistics."""
+    if event_mgr is None or event_mgr.spe is None:
+        return {"layer_stats": {}}
+    try:
+        return {"layer_stats": event_mgr.get_spe_layer_stats()}
+    except Exception:
+        return {"layer_stats": {}}
+
+
+@app.get("/spe/metrics")
+async def spe_metrics():
+    """Return SPE metrics (flushed to disk)."""
+    if event_mgr is None:
+        return {"status": "event_engine_disabled"}
+    try:
+        event_mgr.flush_spe_metrics()
+        import json as _json
+        with open("data/metrics/spe_metrics.json") as f:
+            return _json.load(f)
+    except Exception:
+        return {"status": "no_data"}
 
 
 if __name__ == "__main__":
