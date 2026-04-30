@@ -483,3 +483,33 @@ class SPEOrchestrator:
             "emitted_events": self._events_emitted,
             "current_state": self.state_machine.state,
         }
+
+    def validate_layer_accounting(self) -> dict:
+        """
+        Validate the accounting invariant:
+          For each layer: pass + fail + not_evaluated == raw_evaluations
+
+        Returns:
+            {
+                "accounting_valid": bool,
+                "accounting_errors": [str, ...],
+                "raw_evaluations": int,
+            }
+        """
+        errors = []
+        raw = self._signals_evaluated
+
+        for key in self._layer_order:
+            stats = self._layer_stats[key]
+            total = stats["pass"] + stats["fail"] + stats["not_evaluated"]
+            if total != raw:
+                errors.append(
+                    f"{key}: pass({stats['pass']}) + fail({stats['fail']}) + "
+                    f"not_evaluated({stats['not_evaluated']}) = {total} != raw_evaluations({raw})"
+                )
+
+        return {
+            "accounting_valid": len(errors) == 0,
+            "accounting_errors": errors,
+            "raw_evaluations": raw,
+        }

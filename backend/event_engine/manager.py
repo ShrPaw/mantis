@@ -366,15 +366,18 @@ class EventManager:
             return {}
 
         metrics = self.spe.get_layer_metrics()
+        validation = self.spe.validate_layer_accounting()
         return {
             "layer_pass_fail": metrics["layer_counts"],
-            "raw_evaluations": self._spe_evaluations,
+            "raw_evaluations": metrics["raw_evaluations"],
             "full_8_layer_passes": metrics["full_8_layer_passes"],
             "emitted_events": self._spe_emitted,
             "suppressed_duplicates": self._spe_suppressed_dupes,
             "cooldown_hits": self._spe_cooldown_hits,
             "current_state": metrics["current_state"],
             "observation_only": self.spe_observation_only,
+            "accounting_valid": validation["accounting_valid"],
+            "accounting_errors": validation["accounting_errors"],
         }
 
     def flush_spe_metrics(self):
@@ -383,21 +386,26 @@ class EventManager:
             return
         try:
             layer_metrics = self.spe.get_layer_metrics()
+            validation = self.spe.validate_layer_accounting()
             metrics = {
                 "timestamp": time.time(),
                 "spe_enabled": True,
                 "observation_only": self.spe_observation_only,
                 "current_state": layer_metrics["current_state"],
-                "raw_evaluations": self._spe_evaluations,
+                "raw_evaluations": layer_metrics["raw_evaluations"],
                 "layer_counts": layer_metrics["layer_counts"],
                 "full_8_layer_passes": layer_metrics["full_8_layer_passes"],
                 "emitted_events": self._spe_emitted,
                 "suppressed_duplicates": self._spe_suppressed_dupes,
                 "cooldown_hits": self._spe_cooldown_hits,
+                "accounting_valid": validation["accounting_valid"],
+                "accounting_errors": validation["accounting_errors"],
             }
             os.makedirs("data/metrics", exist_ok=True)
             with open("data/metrics/spe_metrics.json", "w") as f:
                 json.dump(metrics, f, indent=2)
+            if not validation["accounting_valid"]:
+                logger.error("SPE ACCOUNTING INVARIANT VIOLATION: %s", validation["accounting_errors"])
         except Exception as e:
             logger.debug(f"SPE metrics flush error: {e}")
 

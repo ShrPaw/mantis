@@ -450,7 +450,13 @@ async def spe_metrics():
         event_mgr.flush_spe_metrics()
         import json as _json
         with open("data/metrics/spe_metrics.json") as f:
-            return _json.load(f)
+            data = _json.load(f)
+        # Include accounting validation
+        if event_mgr.spe is not None:
+            validation = event_mgr.spe.validate_layer_accounting()
+            data["accounting_valid"] = validation["accounting_valid"]
+            data["accounting_errors"] = validation["accounting_errors"]
+        return data
     except Exception:
         return {"status": "no_data"}
 
