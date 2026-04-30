@@ -227,23 +227,24 @@ const SPEEventCard: React.FC<{ event: SPEEvent }> = ({ event }) => {
 // ============================================================
 const LayerStatsSummary: React.FC<{ stats: SPEStats }> = ({ stats }) => {
   const layerStats = stats.layer_stats;
-  if (!layerStats?.layer_pass_fail) return null;
+  if (!layerStats) return null;
 
-  const layers = Object.entries(layerStats.layer_pass_fail);
+  const layers = Object.entries(layerStats);
   if (layers.length === 0) return null;
 
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'repeat(4, 1fr)',
+      gridTemplateColumns: 'repeat(3, 1fr)',
       gap: 4,
       fontSize: 9,
       fontFamily: 'monospace',
       marginBottom: 12,
     }}>
       {layers.map(([name, counts]) => {
-        const total = counts.pass + counts.fail;
-        const rate = total > 0 ? (counts.pass / total * 100) : 0;
+        const evaluated = counts.pass + counts.fail;
+        const total = evaluated + counts.not_evaluated;
+        const rate = evaluated > 0 ? (counts.pass / evaluated * 100) : 0;
         return (
           <div key={name} style={{
             background: '#111',
@@ -252,12 +253,12 @@ const LayerStatsSummary: React.FC<{ stats: SPEStats }> = ({ stats }) => {
             padding: '3px 5px',
             textAlign: 'center',
           }}>
-            <div style={{ color: '#888', fontSize: 8 }}>{name.replace('L', 'L')}</div>
+            <div style={{ color: '#888', fontSize: 8 }}>{name}</div>
             <div style={{ color: rate > 50 ? '#00c853' : '#ff8800', fontWeight: 700 }}>
-              {rate.toFixed(0)}%
+              {evaluated > 0 ? `${rate.toFixed(0)}%` : '—'}
             </div>
             <div style={{ color: '#555', fontSize: 8 }}>
-              {counts.pass}/{total}
+              {counts.pass}✓ {counts.fail}✗ {counts.not_evaluated}⊘
             </div>
           </div>
         );
@@ -270,6 +271,8 @@ const LayerStatsSummary: React.FC<{ stats: SPEStats }> = ({ stats }) => {
 // SPE Stats Bar
 // ============================================================
 const SPEStatsBar: React.FC<{ stats: SPEStats }> = ({ stats }) => {
+  // Extract full_8_layer_passes from layer_stats if available
+  const full8 = stats.layer_stats?.confidence_gate?.pass ?? 0;
   return (
     <div style={{
       display: 'flex', gap: 16, padding: '8px 0',
@@ -288,13 +291,7 @@ const SPEStatsBar: React.FC<{ stats: SPEStats }> = ({ stats }) => {
       <span>State: <StateBadge state={stats.state} /></span>
       <span>Signals: {stats.signals_evaluated.toLocaleString()}</span>
       <span>Events: {stats.events_emitted}</span>
-      {stats.layer_stats && (
-        <>
-          <span>4L Passes: {stats.layer_stats.partial_4_layer_passes}</span>
-          <span>6L Passes: {stats.layer_stats.partial_6_layer_passes}</span>
-          <span>8L Passes: {stats.layer_stats.full_8_layer_passes}</span>
-        </>
-      )}
+      <span>Full 8L: {full8}</span>
     </div>
   );
 };

@@ -216,12 +216,17 @@ async def metrics_broadcaster():
                 # SPE stats broadcast (observation-only)
                 if event_mgr.spe is not None:
                     try:
+                        spe_layer = event_mgr.get_spe_layer_stats()
                         await broadcast({
                             "type": "spe_stats",
                             "data": {
                                 **event_mgr.spe.get_stats(),
                                 "observation_only": event_mgr.spe_observation_only,
-                                "layer_stats": event_mgr.get_spe_layer_stats(),
+                                "raw_evaluations": spe_layer.get("raw_evaluations", 0),
+                                "full_8_layer_passes": spe_layer.get("full_8_layer_passes", 0),
+                                "emitted_events": spe_layer.get("emitted_events", 0),
+                                "suppressed_duplicates": spe_layer.get("suppressed_duplicates", 0),
+                                "cooldown_hits": spe_layer.get("cooldown_hits", 0),
                             },
                         })
                     except Exception:
@@ -302,10 +307,15 @@ async def websocket_endpoint(ws: WebSocket):
             if event_mgr.spe is not None:
                 try:
                     init_data["spe_events"] = event_mgr.get_spe_events(limit=50)
+                    spe_layer = event_mgr.get_spe_layer_stats()
                     init_data["spe_stats"] = {
                         **event_mgr.spe.get_stats(),
                         "observation_only": event_mgr.spe_observation_only,
-                        "layer_stats": event_mgr.get_spe_layer_stats(),
+                        "raw_evaluations": spe_layer.get("raw_evaluations", 0),
+                        "full_8_layer_passes": spe_layer.get("full_8_layer_passes", 0),
+                        "emitted_events": spe_layer.get("emitted_events", 0),
+                        "suppressed_duplicates": spe_layer.get("suppressed_duplicates", 0),
+                        "cooldown_hits": spe_layer.get("cooldown_hits", 0),
                     }
                 except Exception:
                     init_data["spe_events"] = []
@@ -403,12 +413,17 @@ async def spe_events_list(limit: int = 20):
     if event_mgr is None or event_mgr.spe is None:
         return {"spe_events": [], "spe_stats": {}}
     try:
+        spe_layer = event_mgr.get_spe_layer_stats()
         return {
             "spe_events": event_mgr.get_spe_events(limit=limit),
             "spe_stats": {
                 **event_mgr.spe.get_stats(),
                 "observation_only": event_mgr.spe_observation_only,
-                "layer_stats": event_mgr.get_spe_layer_stats(),
+                "raw_evaluations": spe_layer.get("raw_evaluations", 0),
+                "full_8_layer_passes": spe_layer.get("full_8_layer_passes", 0),
+                "emitted_events": spe_layer.get("emitted_events", 0),
+                "suppressed_duplicates": spe_layer.get("suppressed_duplicates", 0),
+                "cooldown_hits": spe_layer.get("cooldown_hits", 0),
             },
         }
     except Exception:

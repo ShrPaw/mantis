@@ -65,19 +65,44 @@ class SPEOrchestrator:
         # Stats
         self._signals_evaluated: int = 0
         self._events_emitted: int = 0
-        self._layer_failures: dict[str, int] = {
-            "state": 0, "pressure": 0, "displacement": 0,
-            "sweep": 0, "trap": 0, "execution": 0,
-            "entry": 0, "exit": 0, "confidence": 0,
+
+        # Three-state layer accounting: pass / fail / not_evaluated
+        # If layer N fails, layers N+1..end are not_evaluated (never reached).
+        self._layer_stats: dict[str, dict[str, int]] = {
+            "L1_context_gate":    {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L2_pressure":        {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L3_displacement":    {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L4_sweep":           {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L5_trap":            {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L6_execution_filter": {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L7_entry_zone":      {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L8_exit_model":      {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "confidence_gate":    {"pass": 0, "fail": 0, "not_evaluated": 0},
         }
+        self._layer_order: list[str] = [
+            "L1_context_gate", "L2_pressure", "L3_displacement",
+            "L4_sweep", "L5_trap", "L6_execution_filter",
+            "L7_entry_zone", "L8_exit_model", "confidence_gate",
+        ]
 
         logger.info("SPE Orchestrator initialized")
+
+    def _mark_not_evaluated(self, from_index: int):
+        """Mark layers from from_index onward as not_evaluated."""
+        for key in self._layer_order[from_index:]:
+            self._layer_stats[key]["not_evaluated"] += 1
 
     def on_trade(self, price: float, qty: float, delta: float,
                  timestamp: float) -> list[dict]:
         """
         Main entry point: called on every trade tick.
-        Runs full 8-layer pipeline. Returns list of SPE events (usually empty).
+        Runs 8-layer pipeline with cascading accounting.
+        Returns list of SPE events (usually empty).
+
+        Layer accounting:
+          - pass          → layer evaluated and passed
+          - fail          → layer evaluated and failed
+          - not_evaluated → layer was never reached (upstream failed)
         """
         if not self.cfg.enabled:
             return []
@@ -87,20 +112,18 @@ class SPEOrchestrator:
         # ── Layer 1: Context / State Gate ──
         mantis_state = self.state_machine.update(price, qty, delta, timestamp)
 
-        # ── Layer 2: Positioning Pressure ──
+        # Compute scores needed for L1 composite gate
+        # (L2-L6 must run to produce scores, but gate pass/fail is sequential)
         pressure_result = self.pressure.update(price, qty, delta, timestamp)
         crowd_direction = pressure_result["crowd_direction"]
         pressure_strength = pressure_result["pressure_strength"]
 
-        # ── Layer 3: Displacement ──
         disp_result = self.displacement.update(price, qty, delta, timestamp)
         displacement_detected = disp_result["displacement_detected"]
         displacement_direction = disp_result["displacement_direction"]
 
-        # ── Layer 4: Structural Sweep ──
         sweep_result = self.sweep.update(price, qty, delta, timestamp)
 
-        # ── Layer 5: Trap Detection ──
         trap_result = self.trap.update(
             price, qty, delta, timestamp,
             crowd_direction=crowd_direction,
@@ -109,11 +132,9 @@ class SPEOrchestrator:
             displacement_end=disp_result["displacement_end"],
         )
 
-        # ── Layer 6: Execution Filter ──
         is_cascade = mantis_state == "CASCADE"
         exec_result = self.exec_filter.evaluate(timestamp, is_cascade=is_cascade)
 
-        # ── Compute composite scores ──
         imbalance_score = self._compute_imbalance_score(
             pressure_strength, disp_result["displacement_strength"],
             sweep_result["sweep_detected"], trap_result["trap_detected"]
@@ -124,9 +145,7 @@ class SPEOrchestrator:
             disp_result["displacement_body_bps"], exec_result
         )
 
-        # ── Layer 1 Gate Check ──
-        # Context valid if: state IN (CASCADE, UNWIND)
-        # OR (imbalance ≥ 70 AND exec_quality ≥ 70 AND risk ≤ 60)
+        # ── L1 Gate ──
         context_valid = False
         if mantis_state in ("CASCADE", "UNWIND"):
             context_valid = True
@@ -136,58 +155,89 @@ class SPEOrchestrator:
             context_valid = True
 
         if not context_valid:
-            self._layer_failures["state"] += 1
+            self._layer_stats["L1_context_gate"]["fail"] += 1
+            self._mark_not_evaluated(1)  # L2-L8 + confidence = not_evaluated
             return []
 
-        # ── Pressure Gate ──
+        self._layer_stats["L1_context_gate"]["pass"] += 1
+
+        # ── L2 Gate: Pressure ──
         if crowd_direction == "NONE":
-            self._layer_failures["pressure"] += 1
+            self._layer_stats["L2_pressure"]["fail"] += 1
+            self._mark_not_evaluated(2)  # L3-L8 + confidence = not_evaluated
             return []
 
-        # ── Displacement Gate ──
+        self._layer_stats["L2_pressure"]["pass"] += 1
+
+        # ── L3 Gate: Displacement ──
         if not displacement_detected:
-            self._layer_failures["displacement"] += 1
+            self._layer_stats["L3_displacement"]["fail"] += 1
+            self._mark_not_evaluated(3)  # L4-L8 + confidence = not_evaluated
             return []
 
-        # ── Trap Gate ──
+        self._layer_stats["L3_displacement"]["pass"] += 1
+
+        # ── L4 Gate: Sweep ──
+        if not sweep_result["sweep_detected"]:
+            self._layer_stats["L4_sweep"]["fail"] += 1
+            self._mark_not_evaluated(4)  # L5-L8 + confidence = not_evaluated
+            return []
+
+        self._layer_stats["L4_sweep"]["pass"] += 1
+
+        # ── L5 Gate: Trap ──
         if not trap_result["trap_detected"]:
-            self._layer_failures["trap"] += 1
+            self._layer_stats["L5_trap"]["fail"] += 1
+            self._mark_not_evaluated(5)  # L6-L8 + confidence = not_evaluated
             return []
 
-        # ── Execution Gate ──
+        self._layer_stats["L5_trap"]["pass"] += 1
+
+        # ── L6 Gate: Execution Filter ──
         if execution_quality < self.cfg.min_execution_quality:
-            # CASCADE allows degraded execution
             if not (is_cascade and execution_quality >= 50):
-                self._layer_failures["execution"] += 1
+                self._layer_stats["L6_execution_filter"]["fail"] += 1
+                self._mark_not_evaluated(6)  # L7-L8 + confidence = not_evaluated
                 return []
+
+        self._layer_stats["L6_execution_filter"]["pass"] += 1
 
         # ── Determine direction ──
         direction = self._determine_direction(
             crowd_direction, displacement_direction, trap_result["trap_type"]
         )
         if not direction:
+            # Direction derivation failed — counts as L7 not applicable
+            self._layer_stats["L7_entry_zone"]["fail"] += 1
+            self._mark_not_evaluated(7)  # L8 + confidence = not_evaluated
             return []
 
-        # ── Layer 7: Entry ──
+        # ── L7 Gate: Entry ──
         entry_result = self.entry.calculate(
             direction, disp_result["displacement_origin"],
             disp_result["displacement_end"], timestamp
         )
         if not entry_result["valid"]:
-            self._layer_failures["entry"] += 1
+            self._layer_stats["L7_entry_zone"]["fail"] += 1
+            self._mark_not_evaluated(7)  # L8 + confidence = not_evaluated
             return []
 
-        # ── Layer 8: Exit ──
+        self._layer_stats["L7_entry_zone"]["pass"] += 1
+
+        # ── L8 Gate: Exit ──
         exit_result = self.exit_calc.calculate(
             direction, entry_result["entry_price"],
             disp_result["displacement_origin"],
             disp_result["displacement_end"], timestamp
         )
         if not exit_result["valid"]:
-            self._layer_failures["exit"] += 1
+            self._layer_stats["L8_exit_model"]["fail"] += 1
+            self._mark_not_evaluated(8)  # confidence = not_evaluated
             return []
 
-        # ── Compute Confidence Score ──
+        self._layer_stats["L8_exit_model"]["pass"] += 1
+
+        # ── Confidence Gate ──
         confidence_score = self._compute_confidence(
             imbalance_score, execution_quality, risk_score,
             pressure_strength, disp_result["displacement_strength"],
@@ -195,8 +245,10 @@ class SPEOrchestrator:
         )
 
         if confidence_score < self.cfg.alert.min_confidence_score:
-            self._layer_failures["confidence"] += 1
+            self._layer_stats["confidence_gate"]["fail"] += 1
             return []
+
+        self._layer_stats["confidence_gate"]["pass"] += 1
 
         # ── Alert Cooldown ──
         if not self._check_alert_cooldown(timestamp):
@@ -398,11 +450,36 @@ class SPEOrchestrator:
         return " | ".join(parts)
 
     def get_stats(self) -> dict:
-        """Get SPE orchestrator statistics."""
+        """Get SPE orchestrator statistics with three-state layer accounting."""
+        # layer_stats is a flat dict: layer_name -> {pass, fail, not_evaluated}
+        layer_stats = {}
+        for key in self._layer_order:
+            layer_stats[key] = self._layer_stats[key].copy()
+
         return {
             "enabled": self.cfg.enabled,
             "signals_evaluated": self._signals_evaluated,
             "events_emitted": self._events_emitted,
-            "layer_failures": self._layer_failures.copy(),
+            "layer_stats": layer_stats,
             "state": self.state_machine.state,
+        }
+
+    def get_layer_metrics(self) -> dict:
+        """
+        Get structured layer metrics for persistence to spe_metrics.json.
+        Includes per-layer pass/fail/not_evaluated counts and summary stats.
+        """
+        layer_counts = {}
+        for key in self._layer_order:
+            layer_counts[key] = self._layer_stats[key].copy()
+
+        # Count full pipeline passes (all 8 + confidence = pass)
+        full_passes = self._layer_stats["confidence_gate"]["pass"]
+
+        return {
+            "raw_evaluations": self._signals_evaluated,
+            "layer_counts": layer_counts,
+            "full_8_layer_passes": full_passes,
+            "emitted_events": self._events_emitted,
+            "current_state": self.state_machine.state,
         }

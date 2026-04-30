@@ -80,19 +80,9 @@ const defaultSPEStats: SPEStats = {
   enabled: false,
   signals_evaluated: 0,
   events_emitted: 0,
-  layer_failures: {},
+  layer_stats: {},
   state: 'IDLE',
   observation_only: true,
-  layer_stats: {
-    layer_pass_fail: {},
-    raw_evaluations: 0,
-    partial_4_layer_passes: 0,
-    partial_6_layer_passes: 0,
-    full_8_layer_passes: 0,
-    emitted_events: 0,
-    suppressed_duplicates: 0,
-    cooldown_hits: 0,
-  },
 };
 
 // Track previous heatmap for liquidity pull detection

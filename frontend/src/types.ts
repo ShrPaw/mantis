@@ -343,25 +343,25 @@ export interface SPEEvent {
 export interface SPELayerStat {
   pass: number;
   fail: number;
+  not_evaluated: number;
 }
 
 export interface SPELayerStats {
   layer_pass_fail: Record<string, SPELayerStat>;
   raw_evaluations: number;
-  partial_4_layer_passes: number;
-  partial_6_layer_passes: number;
   full_8_layer_passes: number;
   emitted_events: number;
   suppressed_duplicates: number;
   cooldown_hits: number;
+  current_state: string;
+  observation_only: boolean;
 }
 
 export interface SPEStats {
   enabled: boolean;
   signals_evaluated: number;
   events_emitted: number;
-  layer_failures: Record<string, number>;
+  layer_stats: Record<string, SPELayerStat>;
   state: string;
   observation_only: boolean;
-  layer_stats: SPELayerStats;
 }
