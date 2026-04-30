@@ -192,23 +192,25 @@ def generate_report(
 
 ## 3. Layer Statistics
 
-| Layer | Pass | Fail | Pass Rate |
-|-------|------|------|-----------|
+| Layer | Pass | Fail | Not Evaluated | Pass Rate |
+|-------|------|------|---------------|-----------|
 """
 
     for layer_name in ["L1_context_gate", "L2_pressure", "L3_displacement",
                        "L4_sweep", "L5_trap", "L6_execution_filter",
                        "L7_entry_zone", "L8_exit_model", "confidence_gate"]:
-        counts = layer_pf.get(layer_name, {"pass": 0, "fail": 0})
-        total = counts["pass"] + counts["fail"]
-        rate = (counts["pass"] / total * 100) if total > 0 else 0
-        report += f"| {layer_name} | {counts['pass']} | {counts['fail']} | {rate:.1f}% |\n"
+        counts = layer_pf.get(layer_name, {"pass": 0, "fail": 0, "not_evaluated": 0})
+        total = counts["pass"] + counts["fail"] + counts.get("not_evaluated", 0)
+        evaluated = counts["pass"] + counts["fail"]
+        rate = (counts["pass"] / evaluated * 100) if evaluated > 0 else 0
+        ne = counts.get("not_evaluated", 0)
+        report += f"| {layer_name} | {counts['pass']} | {counts['fail']} | {ne} | {rate:.1f}% |\n"
 
-    # Find rejection bottleneck
+    # Find rejection bottleneck (only among evaluated layers)
     rejection_layers = []
     for layer_name, counts in layer_pf.items():
-        total = counts["pass"] + counts["fail"]
-        if total > 0 and counts["fail"] / total > 0.8:
+        evaluated = counts["pass"] + counts["fail"]
+        if evaluated > 0 and counts["fail"] / evaluated > 0.8:
             rejection_layers.append(layer_name)
 
     report += f"""

@@ -206,6 +206,9 @@ class EventManager:
             self.bw_manager.export_blacklist_report_csv(
                 self.config.watchlist.snapshot_path.replace("candidate_watchlist", "blacklist_watchlist_report")
             )
+            # Flush SPE metrics periodically (even when no events fire)
+            if self.spe is not None:
+                self.flush_spe_metrics()
 
         return [e.to_dict() if hasattr(e, 'to_dict') else e for e in new_events]
 
@@ -293,17 +296,17 @@ class EventManager:
     # --- SPE Helpers ---
 
     def _init_spe_layer_stats(self) -> dict:
-        """Initialize SPE layer pass/fail counters."""
+        """Initialize SPE layer counters with three states: pass, fail, not_evaluated."""
         return {
-            "L1_context_gate": {"pass": 0, "fail": 0},
-            "L2_pressure": {"pass": 0, "fail": 0},
-            "L3_displacement": {"pass": 0, "fail": 0},
-            "L4_sweep": {"pass": 0, "fail": 0},
-            "L5_trap": {"pass": 0, "fail": 0},
-            "L6_execution_filter": {"pass": 0, "fail": 0},
-            "L7_entry_zone": {"pass": 0, "fail": 0},
-            "L8_exit_model": {"pass": 0, "fail": 0},
-            "confidence_gate": {"pass": 0, "fail": 0},
+            "L1_context_gate": {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L2_pressure": {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L3_displacement": {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L4_sweep": {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L5_trap": {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L6_execution_filter": {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L7_entry_zone": {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "L8_exit_model": {"pass": 0, "fail": 0, "not_evaluated": 0},
+            "confidence_gate": {"pass": 0, "fail": 0, "not_evaluated": 0},
         }
 
     def _ensure_spe_dirs(self):
@@ -313,30 +316,68 @@ class EventManager:
 
     def _track_spe_layer_pass(self, price: float, qty: float, delta: float, timestamp: float):
         """
-        Track which SPE layers pass/fail on every evaluation.
-        This runs the layer checks independently to get granular stats.
+        Track which SPE layers pass/fail/not_evaluated on every evaluation.
+        Short-circuits: if layer N fails, layers N+1..8 are not_evaluated.
         """
         if self.spe is None:
             return
 
         try:
-            # L1: Context gate
+            layer_order = [
+                "L1_context_gate", "L2_pressure", "L3_displacement",
+                "L4_sweep", "L5_trap", "L6_execution_filter",
+                "L7_entry_zone", "L8_exit_model", "confidence_gate",
+            ]
+
+            # ── L1: Context gate ──
             mantis_state = self.spe.state_machine.update(price, qty, delta, timestamp)
             l1_pass = mantis_state in ("CASCADE", "UNWIND")
 
-            # L2: Pressure
+            if not l1_pass:
+                self._spe_layer_stats["L1_context_gate"]["fail"] += 1
+                for layer in layer_order[1:]:
+                    self._spe_layer_stats[layer]["not_evaluated"] += 1
+                return
+
+            self._spe_layer_stats["L1_context_gate"]["pass"] += 1
+
+            # ── L2: Pressure ──
             pressure_result = self.spe.pressure.update(price, qty, delta, timestamp)
             l2_pass = pressure_result["crowd_direction"] != "NONE"
 
-            # L3: Displacement
+            if not l2_pass:
+                self._spe_layer_stats["L2_pressure"]["fail"] += 1
+                for layer in layer_order[2:]:
+                    self._spe_layer_stats[layer]["not_evaluated"] += 1
+                return
+
+            self._spe_layer_stats["L2_pressure"]["pass"] += 1
+
+            # ── L3: Displacement ──
             disp_result = self.spe.displacement.update(price, qty, delta, timestamp)
             l3_pass = disp_result["displacement_detected"]
 
-            # L4: Sweep
+            if not l3_pass:
+                self._spe_layer_stats["L3_displacement"]["fail"] += 1
+                for layer in layer_order[3:]:
+                    self._spe_layer_stats[layer]["not_evaluated"] += 1
+                return
+
+            self._spe_layer_stats["L3_displacement"]["pass"] += 1
+
+            # ── L4: Sweep ──
             sweep_result = self.spe.sweep.update(price, qty, delta, timestamp)
             l4_pass = sweep_result["sweep_detected"]
 
-            # L5: Trap
+            if not l4_pass:
+                self._spe_layer_stats["L4_sweep"]["fail"] += 1
+                for layer in layer_order[4:]:
+                    self._spe_layer_stats[layer]["not_evaluated"] += 1
+                return
+
+            self._spe_layer_stats["L4_sweep"]["pass"] += 1
+
+            # ── L5: Trap ──
             trap_result = self.spe.trap.update(
                 price, qty, delta, timestamp,
                 crowd_direction=pressure_result["crowd_direction"],
@@ -346,12 +387,28 @@ class EventManager:
             )
             l5_pass = trap_result["trap_detected"]
 
-            # L6: Execution filter
+            if not l5_pass:
+                self._spe_layer_stats["L5_trap"]["fail"] += 1
+                for layer in layer_order[5:]:
+                    self._spe_layer_stats[layer]["not_evaluated"] += 1
+                return
+
+            self._spe_layer_stats["L5_trap"]["pass"] += 1
+
+            # ── L6: Execution filter ──
             is_cascade = mantis_state == "CASCADE"
             exec_result = self.spe.exec_filter.evaluate(timestamp, is_cascade=is_cascade)
             l6_pass = exec_result["execution_quality"] >= self.spe.cfg.min_execution_quality
 
-            # L7: Entry
+            if not l6_pass:
+                self._spe_layer_stats["L6_execution_filter"]["fail"] += 1
+                for layer in layer_order[6:]:
+                    self._spe_layer_stats[layer]["not_evaluated"] += 1
+                return
+
+            self._spe_layer_stats["L6_execution_filter"]["pass"] += 1
+
+            # ── L7: Entry ──
             direction = self.spe._determine_direction(
                 pressure_result["crowd_direction"],
                 disp_result["displacement_direction"],
@@ -365,7 +422,15 @@ class EventManager:
                 )
                 l7_pass = entry_result["valid"]
 
-            # L8: Exit
+            if not l7_pass:
+                self._spe_layer_stats["L7_entry_zone"]["fail"] += 1
+                for layer in layer_order[7:]:
+                    self._spe_layer_stats[layer]["not_evaluated"] += 1
+                return
+
+            self._spe_layer_stats["L7_entry_zone"]["pass"] += 1
+
+            # ── L8: Exit ──
             l8_pass = False
             if direction and l7_pass:
                 exit_result = self.spe.exit_calc.calculate(
@@ -375,27 +440,23 @@ class EventManager:
                 )
                 l8_pass = exit_result["valid"]
 
-            # Update counters
-            for layer, passed in [
-                ("L1_context_gate", l1_pass), ("L2_pressure", l2_pass),
-                ("L3_displacement", l3_pass), ("L4_sweep", l4_pass),
-                ("L5_trap", l5_pass), ("L6_execution_filter", l6_pass),
-                ("L7_entry_zone", l7_pass), ("L8_exit_model", l8_pass),
-            ]:
-                if passed:
-                    self._spe_layer_stats[layer]["pass"] += 1
-                else:
-                    self._spe_layer_stats[layer]["fail"] += 1
+            if not l8_pass:
+                self._spe_layer_stats["L8_exit_model"]["fail"] += 1
+                self._spe_layer_stats["confidence_gate"]["not_evaluated"] += 1
+                return
 
-            # Track partial passes
-            layers_passed = sum(1 for p in [l1_pass, l2_pass, l3_pass, l4_pass,
-                                            l5_pass, l6_pass, l7_pass, l8_pass] if p)
-            if layers_passed >= 4:
+            self._spe_layer_stats["L8_exit_model"]["pass"] += 1
+
+            # ── Confidence gate (all 8 layers passed) ──
+            self._spe_full_8 += 1
+            self._spe_layer_stats["confidence_gate"]["pass"] += 1
+
+            # Track partial passes (only count layers that were actually evaluated)
+            evaluated = 9  # all 9 gates evaluated when we reach here
+            if evaluated >= 4:
                 self._spe_partial_4 += 1
-            if layers_passed >= 6:
+            if evaluated >= 6:
                 self._spe_partial_6 += 1
-            if layers_passed >= 8:
-                self._spe_full_8 += 1
 
         except Exception as e:
             logger.debug(f"SPE layer tracking error (non-fatal): {e}")
@@ -469,7 +530,7 @@ class EventManager:
         return self._spe_event_history[-limit:]
 
     def get_spe_layer_stats(self) -> dict:
-        """Get SPE layer pass/fail statistics."""
+        """Get SPE layer pass/fail/not_evaluated statistics."""
         return {
             "layer_pass_fail": self._spe_layer_stats.copy(),
             "raw_evaluations": self._spe_evaluations,
@@ -479,18 +540,22 @@ class EventManager:
             "emitted_events": self._spe_emitted,
             "suppressed_duplicates": self._spe_suppressed_dupes,
             "cooldown_hits": self._spe_cooldown_hits,
+            "current_state": self.spe.state_machine.state if self.spe else "N/A",
+            "observation_only": self.spe_observation_only,
         }
 
     def flush_spe_metrics(self):
-        """Flush SPE metrics to disk."""
+        """Flush SPE metrics to disk. Always persists, even when no events fire."""
         try:
             metrics = {
                 "timestamp": time.time(),
                 "spe_enabled": self.spe is not None,
                 "observation_only": self.spe_observation_only,
+                "current_state": self.spe.state_machine.state if self.spe else "N/A",
                 "layer_stats": self.get_spe_layer_stats(),
                 "orchestrator_stats": self.spe.get_stats() if self.spe else {},
             }
+            os.makedirs("data/metrics", exist_ok=True)
             with open("data/metrics/spe_metrics.json", "w") as f:
                 json.dump(metrics, f, indent=2)
         except Exception as e:
