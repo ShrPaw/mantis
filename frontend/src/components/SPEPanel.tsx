@@ -1,7 +1,8 @@
-// MANTIS — SPE Panel Component
-// Displays Structural Pressure Execution events and status
+// MANTIS — SPE Panel Component (Observation-Only Mode)
+// Displays Structural Pressure Execution context detection and status
+// THIS IS NOT A TRADING SIGNAL. Context detection only.
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import { useStore } from '../store';
 import type { SPEEvent, SPEStats } from '../types';
 
@@ -10,7 +11,6 @@ import type { SPEEvent, SPEStats } from '../types';
 // ============================================================
 const StateBadge: React.FC<{ state: string }> = ({ state }) => {
   const color = state === 'CASCADE' ? '#ff4444' : state === 'UNWIND' ? '#ff8800' : '#666';
-  const label = state === 'IDLE' ? 'IDLE' : state;
   return (
     <span style={{
       background: color,
@@ -22,27 +22,28 @@ const StateBadge: React.FC<{ state: string }> = ({ state }) => {
       fontFamily: 'monospace',
       letterSpacing: 1,
     }}>
-      {label}
+      {state}
     </span>
   );
 };
 
 // ============================================================
-// Direction Badge
+// Direction Context Badge
 // ============================================================
 const DirectionBadge: React.FC<{ direction: string }> = ({ direction }) => {
   const isLong = direction === 'LONG';
   return (
     <span style={{
-      background: isLong ? '#00c853' : '#ff1744',
-      color: '#fff',
+      background: isLong ? 'rgba(0,200,83,0.15)' : 'rgba(255,23,68,0.15)',
+      color: isLong ? '#00c853' : '#ff1744',
       padding: '2px 8px',
       borderRadius: 4,
       fontSize: 12,
       fontWeight: 700,
       fontFamily: 'monospace',
+      border: `1px solid ${isLong ? '#00c85340' : '#ff174440'}`,
     }}>
-      {direction}
+      {direction} CONTEXT
     </span>
   );
 };
@@ -112,7 +113,7 @@ const LayerStatus: React.FC<{ event: SPEEvent }> = ({ event }) => {
 };
 
 // ============================================================
-// Single SPE Event Card
+// Single SPE Event Card (Observation-Only Language)
 // ============================================================
 const SPEEventCard: React.FC<{ event: SPEEvent }> = ({ event }) => {
   const timeStr = new Date(event.timestamp * 1000).toLocaleTimeString();
@@ -131,6 +132,18 @@ const SPEEventCard: React.FC<{ event: SPEEvent }> = ({ event }) => {
         alignItems: 'center', marginBottom: 8,
       }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{
+            background: '#f0b90b20',
+            color: '#f0b90b',
+            padding: '2px 8px',
+            borderRadius: 4,
+            fontSize: 10,
+            fontWeight: 700,
+            fontFamily: 'monospace',
+            border: '1px solid #f0b90b40',
+          }}>
+            WATCH
+          </span>
           <DirectionBadge direction={event.direction} />
           <StateBadge state={event.mantis_state} />
           <span style={{ color: '#666', fontSize: 11, fontFamily: 'monospace' }}>
@@ -138,6 +151,20 @@ const SPEEventCard: React.FC<{ event: SPEEvent }> = ({ event }) => {
           </span>
         </div>
         <ConfidenceBar score={event.confidence_score} />
+      </div>
+
+      {/* Context Label */}
+      <div style={{
+        background: '#f0b90b10',
+        border: '1px solid #f0b90b30',
+        borderRadius: 4,
+        padding: '4px 8px',
+        marginBottom: 8,
+        fontSize: 11,
+        fontFamily: 'monospace',
+        color: '#f0b90b',
+      }}>
+        SPE Context Detected — Execution Window Candidate
       </div>
 
       {/* Layer Status */}
@@ -149,11 +176,11 @@ const SPEEventCard: React.FC<{ event: SPEEvent }> = ({ event }) => {
         fontSize: 11, fontFamily: 'monospace',
       }}>
         <div>
-          <span style={{ color: '#666' }}>Entry: </span>
+          <span style={{ color: '#666' }}>Zone: </span>
           <span style={{ color: '#fff' }}>${event.entry_price.toLocaleString()}</span>
         </div>
         <div>
-          <span style={{ color: '#666' }}>SL: </span>
+          <span style={{ color: '#666' }}>Invalidation: </span>
           <span style={{ color: '#ff1744' }}>${event.stop_loss.toLocaleString()}</span>
         </div>
         {event.tp_levels.map((tp, i) => (
@@ -183,6 +210,58 @@ const SPEEventCard: React.FC<{ event: SPEEvent }> = ({ event }) => {
       }}>
         {event.explanation}
       </div>
+
+      {/* Observation-Only Notice */}
+      <div style={{
+        marginTop: 6, fontSize: 9, color: '#555',
+        fontFamily: 'monospace', fontStyle: 'italic',
+      }}>
+        ⚠ Observation-only — no execution — context detection for validation
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// Layer Stats Summary
+// ============================================================
+const LayerStatsSummary: React.FC<{ stats: SPEStats }> = ({ stats }) => {
+  const layerStats = stats.layer_stats;
+  if (!layerStats?.layer_pass_fail) return null;
+
+  const layers = Object.entries(layerStats.layer_pass_fail);
+  if (layers.length === 0) return null;
+
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(4, 1fr)',
+      gap: 4,
+      fontSize: 9,
+      fontFamily: 'monospace',
+      marginBottom: 12,
+    }}>
+      {layers.map(([name, counts]) => {
+        const total = counts.pass + counts.fail;
+        const rate = total > 0 ? (counts.pass / total * 100) : 0;
+        return (
+          <div key={name} style={{
+            background: '#111',
+            border: '1px solid #222',
+            borderRadius: 4,
+            padding: '3px 5px',
+            textAlign: 'center',
+          }}>
+            <div style={{ color: '#888', fontSize: 8 }}>{name.replace('L', 'L')}</div>
+            <div style={{ color: rate > 50 ? '#00c853' : '#ff8800', fontWeight: 700 }}>
+              {rate.toFixed(0)}%
+            </div>
+            <div style={{ color: '#555', fontSize: 8 }}>
+              {counts.pass}/{total}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -193,24 +272,29 @@ const SPEEventCard: React.FC<{ event: SPEEvent }> = ({ event }) => {
 const SPEStatsBar: React.FC<{ stats: SPEStats }> = ({ stats }) => {
   return (
     <div style={{
-      display: 'flex', gap: 20, padding: '8px 0',
+      display: 'flex', gap: 16, padding: '8px 0',
       fontSize: 11, fontFamily: 'monospace', color: '#888',
       borderBottom: '1px solid #333', marginBottom: 12,
+      flexWrap: 'wrap',
     }}>
       <span>
         <span style={{ color: stats.enabled ? '#00c853' : '#ff1744' }}>●</span>
         {' '}SPE {stats.enabled ? 'ACTIVE' : 'OFF'}
       </span>
+      <span>
+        <span style={{ color: '#f0b90b' }}>●</span>
+        {' '}Mode: OBSERVATION-ONLY
+      </span>
       <span>State: <StateBadge state={stats.state} /></span>
       <span>Signals: {stats.signals_evaluated.toLocaleString()}</span>
       <span>Events: {stats.events_emitted}</span>
-      {Object.entries(stats.layer_failures).map(([layer, count]) => (
-        count > 0 && (
-          <span key={layer} style={{ color: '#ff8800' }}>
-            {layer}: {count}
-          </span>
-        )
-      ))}
+      {stats.layer_stats && (
+        <>
+          <span>4L Passes: {stats.layer_stats.partial_4_layer_passes}</span>
+          <span>6L Passes: {stats.layer_stats.partial_6_layer_passes}</span>
+          <span>8L Passes: {stats.layer_stats.full_8_layer_passes}</span>
+        </>
+      )}
     </div>
   );
 };
@@ -255,15 +339,38 @@ export const SPEPanel: React.FC = () => {
           margin: 0, fontSize: 14, fontFamily: 'monospace',
           color: '#fff', letterSpacing: 1,
         }}>
-          SPE — Structural Pressure Execution
+          SPE — Structural Pressure Context
         </h3>
         <span style={{ fontSize: 10, color: '#666', fontFamily: 'monospace' }}>
-          {speEvents.length} events
+          {speEvents.length} contexts detected
+        </span>
+      </div>
+
+      {/* Observation-Only Banner */}
+      <div style={{
+        background: '#f0b90b10',
+        border: '1px solid #f0b90b30',
+        borderRadius: 4,
+        padding: '6px 10px',
+        marginBottom: 12,
+        fontSize: 11,
+        fontFamily: 'monospace',
+        color: '#f0b90b',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+      }}>
+        <span>⚠ OBSERVATION-ONLY — No execution — Context detection for validation</span>
+        <span style={{ fontSize: 9, color: '#888' }}>
+          SPE_ENABLED=true | SPE_OBSERVATION_ONLY=true
         </span>
       </div>
 
       {/* Stats */}
       <SPEStatsBar stats={speStats} />
+
+      {/* Layer Stats Summary */}
+      <LayerStatsSummary stats={speStats} />
 
       {/* Events */}
       <div style={{ maxHeight: 600, overflowY: 'auto' }}>
@@ -272,7 +379,7 @@ export const SPEPanel: React.FC = () => {
             textAlign: 'center', color: '#444',
             fontFamily: 'monospace', fontSize: 12, padding: 20,
           }}>
-            No SPE events yet. Waiting for structural conditions...
+            No SPE contexts detected yet. Waiting for structural conditions...
           </div>
         ) : (
           speEvents.map(event => (

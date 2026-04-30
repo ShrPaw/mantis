@@ -4,6 +4,7 @@ import type {
   FlowMetrics, HeatmapData, FootprintCandle, LargeTrade,
   AbsorptionZone, Candle, MicrostructureState,
   MarketEvent, EventStats, EventFilter,
+  SPEEvent, SPEStats,
 } from './types';
 
 interface DashboardState {
@@ -30,6 +31,10 @@ interface DashboardState {
   eventStats: EventStats;
   eventFilter: EventFilter | null;
 
+  // SPE Module (observation-only)
+  speEvents: SPEEvent[];
+  speStats: SPEStats;
+
   // Actions
   setFlow: (f: FlowMetrics) => void;
   setHeatmap: (h: HeatmapData) => void;
@@ -45,6 +50,10 @@ interface DashboardState {
   addEvents: (evts: MarketEvent[]) => void;
   setEventStats: (s: EventStats) => void;
   setEventFilter: (f: EventFilter | null) => void;
+
+  // SPE actions
+  addSPEEvents: (evts: SPEEvent[]) => void;
+  setSPEStats: (s: SPEStats) => void;
 }
 
 const defaultFlow: FlowMetrics = {
@@ -65,6 +74,25 @@ const defaultEventStats: EventStats = {
   avg_strength: 0, avg_confidence: 0,
   measured_count: 0, unmeasured_count: 0,
   fired: 0, deduped: 0, pending_outcomes: 0,
+};
+
+const defaultSPEStats: SPEStats = {
+  enabled: false,
+  signals_evaluated: 0,
+  events_emitted: 0,
+  layer_failures: {},
+  state: 'IDLE',
+  observation_only: true,
+  layer_stats: {
+    layer_pass_fail: {},
+    raw_evaluations: 0,
+    partial_4_layer_passes: 0,
+    partial_6_layer_passes: 0,
+    full_8_layer_passes: 0,
+    emitted_events: 0,
+    suppressed_duplicates: 0,
+    cooldown_hits: 0,
+  },
 };
 
 // Track previous heatmap for liquidity pull detection
@@ -191,6 +219,10 @@ export const useStore = create<DashboardState>((set, get) => ({
   eventStats: defaultEventStats,
   eventFilter: null,
 
+  // SPE state
+  speEvents: [],
+  speStats: defaultSPEStats,
+
   setFlow: (f) => set({ flow: f }),
   setHeatmap: (h) => set({ heatmap: h }),
   setFootprints: (f) => set({ footprints: f }),
@@ -215,6 +247,8 @@ export const useStore = create<DashboardState>((set, get) => ({
       candles: d.candles || [],
       events: d.events || [],
       eventStats: d.event_stats || defaultEventStats,
+      speEvents: d.spe_events || [],
+      speStats: d.spe_stats || defaultSPEStats,
     });
   },
 
@@ -228,4 +262,10 @@ export const useStore = create<DashboardState>((set, get) => ({
   })),
   setEventStats: (stats) => set({ eventStats: stats }),
   setEventFilter: (filter) => set({ eventFilter: filter }),
+
+  // SPE actions
+  addSPEEvents: (evts) => set(s => ({
+    speEvents: [...evts, ...s.speEvents].slice(0, 200),
+  })),
+  setSPEStats: (stats) => set({ speStats: stats }),
 }));

@@ -1,7 +1,7 @@
 // MANTIS Dashboard — WebSocket connection with auto-reconnect
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store';
-import type { LargeTrade, MarketEvent } from '../types';
+import type { LargeTrade, MarketEvent, SPEEvent } from '../types';
 
 const RECONNECT_DELAY = 1000;
 const PING_INTERVAL = 15000;
@@ -15,6 +15,7 @@ export function useWebSocket() {
     setConnected, setFlow, setHeatmap, setFootprints,
     setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro,
     addEvents, setEventStats,
+    addSPEEvents, setSPEStats,
   } = useStore();
 
   const connect = useCallback(() => {
@@ -73,6 +74,15 @@ export function useWebSocket() {
             setEventStats(msg.data);
             break;
           }
+          case 'spe_detected': {
+            const evts = Array.isArray(msg.data) ? msg.data : [msg.data];
+            addSPEEvents(evts as SPEEvent[]);
+            break;
+          }
+          case 'spe_stats': {
+            setSPEStats(msg.data);
+            break;
+          }
           case 'pong':
             break;
         }
@@ -88,7 +98,7 @@ export function useWebSocket() {
     };
 
     ws.onerror = () => ws.close();
-  }, [setConnected, setFlow, setHeatmap, setFootprints, setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro, addEvents, setEventStats]);
+  }, [setConnected, setFlow, setHeatmap, setFootprints, setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro, addEvents, setEventStats, addSPEEvents, setSPEStats]);
 
   useEffect(() => {
     connect();

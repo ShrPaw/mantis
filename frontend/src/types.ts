@@ -304,3 +304,64 @@ export interface EventFilter {
   side?: string;
   min_strength?: number;
 }
+
+// ============================================================
+// SPE — Structural Pressure Execution (Observation-Only)
+// ============================================================
+
+export interface SPEEvent {
+  event_id: string;
+  timestamp: number;
+  symbol: string;
+  exchange: string;
+  event_type: 'structural_pressure_execution';
+  direction: 'LONG' | 'SHORT';
+  mantis_state: 'CASCADE' | 'UNWIND';
+  imbalance_score: number;
+  execution_quality: number;
+  risk_score: number;
+  crowd_direction: 'LONG_CROWD' | 'SHORT_CROWD';
+  displacement_strength: number;
+  trap_detected: boolean;
+  entry_price: number;
+  stop_loss: number;
+  tp_levels: number[];
+  confidence_score: number;
+  pressure_strength: number;
+  funding_z: number;
+  sweep_detected: boolean;
+  sweep_direction: string;
+  spread_bps: number;
+  displacement_origin: number;
+  displacement_end: number;
+  displacement_body_bps: number;
+  validation_tags: string[];
+  explanation: string;
+  observation_only: boolean;
+}
+
+export interface SPELayerStat {
+  pass: number;
+  fail: number;
+}
+
+export interface SPELayerStats {
+  layer_pass_fail: Record<string, SPELayerStat>;
+  raw_evaluations: number;
+  partial_4_layer_passes: number;
+  partial_6_layer_passes: number;
+  full_8_layer_passes: number;
+  emitted_events: number;
+  suppressed_duplicates: number;
+  cooldown_hits: number;
+}
+
+export interface SPEStats {
+  enabled: boolean;
+  signals_evaluated: number;
+  events_emitted: number;
+  layer_failures: Record<string, number>;
+  state: string;
+  observation_only: boolean;
+  layer_stats: SPELayerStats;
+}

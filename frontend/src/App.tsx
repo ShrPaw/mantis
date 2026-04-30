@@ -12,6 +12,7 @@ import { Footprint } from './components/Footprint';
 import { MicroPanel } from './components/MicroPanel';
 import { SessionContext } from './components/SessionContext';
 import { NewsPanel } from './components/NewsPanel';
+import { SPEPanel } from './components/SPEPanel';
 
 export default function App() {
   useWebSocket();
@@ -63,10 +64,11 @@ export default function App() {
           </div>
         </div>
 
-        {/* Far Right Column: Sessions + News */}
+        {/* Far Right Column: Sessions + News + SPE */}
         <div style={styles.farRightCol}>
           <SessionContext />
           <NewsPanel />
+          <SPEPanel />
         </div>
       </div>
     </div>
