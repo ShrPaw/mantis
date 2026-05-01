@@ -301,29 +301,76 @@ The **OPERATOR** view loads by default. Toggle to **MICROSTRUCTURE** for the ori
 |-------|-----------|-------|--------|
 | SYSTEM OFFLINE | Backend unreachable | Red | Check backend |
 | ACCOUNTING ERROR | `spe.accounting_valid === false` | Red | Review audit |
-| SHORT_STRESS CANDIDATE | `full8 > 0 && CASCADE/UNWIND` | Green | Review manually |
-| SHORT_STRESS WATCH | `raw > 0 && CASCADE/UNWIND` | Amber | Observe, wait |
+| SHORT_STRESS CANDIDATE | `(emitted > 0 \|\| full8 > 0) && CASCADE/UNWIND` | Green | Review manually |
+| SHORT_STRESS WATCH | `L1 pass > 0 && no full pass` OR `raw > 0 && CASCADE/UNWIND` | Amber | Observe, wait |
 | OBSERVE_ONLY | `spe.enabled && IDLE && !L1 blocking` | Cyan | Observe only |
 | NO VALID CONTEXT | `L1 blocking \|\| IDLE` | Gray | Observe only |
 
 ---
 
-## 11. Final Verdict
+## 11. Decision-Layer Refinements (2026-05-02)
+
+### Changes Made
+
+**DecisionBanner.tsx:**
+- CANDIDATE now triggers on `emitted_events > 0` (not just `full8 > 0`)
+- WATCH now triggers on `L1 pass > 0` with no full pass (downstream evaluation in progress)
+- WATCH also triggers on `raw > 0 && CASCADE/UNWIND` (structural state detected, layers blocking)
+
+**ShortStressPanel.tsx:**
+- Added L1 Context Gate row (PASS / FAIL / NOT EVALUATED)
+- Checklist labels updated: "Direction model", "Market state", "High volume regime", "High volatility regime"
+- Added readiness status footer: INACTIVE / WATCH / CANDIDATE with detail text
+- Candidate logic now includes `emitted_events > 0`
+
+**WhyBlockedPanel.tsx:**
+- Added accounting invalid critical warning (red box)
+- Added "Blocked upstream" for downstream not_evaluated layers when an upstream layer fails
+- Added "No full candidate formed yet" when no layer failed but no event emitted
+- Shows evaluation summary with layer count
+
+**InterpretationPanel.tsx:**
+- L1 blocking explanation now more specific: "L1 Context Gate has blocked all evaluations — this usually means the market is IDLE, LOW_VOLUME, or lacks CASCADE/UNWIND pressure"
+- Low volume case: "Low activity environment — SHORT_STRESS should not activate here"
+- SHORT_STRESS status now triggers on `emitted_events > 0`
+
+**MarketStatePanel.tsx:**
+- "What to do" now shows low-volume specific text: "Low activity environment — SHORT_STRESS should not activate here"
+- Candidate logic now includes `emitted_events > 0`
+
+**SPECharts.tsx:**
+- Added 5th answer chip: "System healthy?" (YES/NO DATA)
+- Quick-read text shows "Always IDLE" when all samples are IDLE
+
+### Silent State UX
+
+When SPE events = 0, the UI shows:
+- Decision Banner: "NO VALID CONTEXT" with reason
+- Interpretation: "L1 Context Gate has blocked all evaluations..."
+- Checklist: "0 SPE events — system silent by design."
+- Charts: "0 SPE events — system silent by design."
+- Market State: "Market idle — observe only"
+
+When low volume + IDLE:
+- Interpretation: "Low activity environment — SHORT_STRESS should not activate here"
+- Market State: "Low activity environment — SHORT_STRESS should not activate here"
+
+---
+
+## 12. Final Verdict
 
 ### **A — Decision-oriented operator dashboard ready for live observation**
 
-The dashboard now answers the operator's key question in 5 seconds: **"What matters right now?"**
+The dashboard now answers the operator's key questions in 5 seconds:
 
-- Decision banner at top shows current state, reason, and action
-- "Why Blocked" translates SPE layer failures into plain language
-- Checklist shows condition status with clear visual hierarchy
-- Charts answer key questions with answer chips
-- Interpretation panel provides natural language summary
-- All safety language requirements met
-- Observation-only clearly visible
-- No trading actions exist
-- Green holographic theme preserved and refined
-- Reduced empty space, better layout balance
+1. **What is the market condition?** → Market State panel + Decision Banner
+2. **Is there valid context?** → Decision Banner (NO VALID CONTEXT / OBSERVE ONLY / etc.)
+3. **Why is SPE blocked?** → Why Blocked panel (plain language per layer)
+4. **Is SHORT_STRESS active or inactive?** → Checklist readiness status (INACTIVE/WATCH/CANDIDATE)
+5. **What should I do operationally?** → "What to do" box + Decision Banner action
+6. **What should I wait for?** → Why Blocked detail + Interpretation sentence
+
+All safety language requirements met. Observation-only clearly visible. No trading actions exist. Green holographic theme preserved. Reduced empty space, better layout balance.
 
 ---
 

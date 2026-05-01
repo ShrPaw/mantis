@@ -64,8 +64,23 @@ const LAYER_ORDER = [
   'L5_trap', 'L6_execution_filter', 'L7_entry_zone', 'L8_exit_model', 'confidence_gate',
 ];
 
-function getBlockReasons(lc: Record<string, { pass: number; fail: number; not_evaluated: number }>, raw: number): BlockReason[] {
+function getBlockReasons(
+  lc: Record<string, { pass: number; fail: number; not_evaluated: number }>,
+  raw: number,
+  accountingValid: boolean,
+  emitted: number,
+): BlockReason[] {
   const reasons: BlockReason[] = [];
+
+  // Critical: accounting invalid
+  if (!accountingValid) {
+    reasons.push({
+      layer: 'accounting',
+      layerName: 'Accounting',
+      message: 'SPE accounting invalid',
+      detail: 'Do not trust dashboard state. Review accounting audit.',
+    });
+  }
 
   if (raw === 0) {
     reasons.push({
@@ -77,26 +92,60 @@ function getBlockReasons(lc: Record<string, { pass: number; fail: number; not_ev
     return reasons;
   }
 
-  for (const key of LAYER_ORDER) {
+  // Find first failing layer
+  let firstFailIndex = -1;
+  for (let i = 0; i < LAYER_ORDER.length; i++) {
+    const key = LAYER_ORDER[i];
     const c = lc[key];
     if (!c) continue;
-    const lang = LAYER_LANG[key];
-    if (!lang) continue;
-
     if (c.fail > 0 && c.pass === 0) {
-      reasons.push({
-        layer: key,
-        layerName: lang.name,
-        message: lang.failMsg,
-        detail: lang.detail,
-      });
+      const lang = LAYER_LANG[key];
+      if (lang) {
+        reasons.push({
+          layer: key,
+          layerName: lang.name,
+          message: lang.failMsg,
+          detail: lang.detail,
+        });
+      }
+      firstFailIndex = i;
+      break;
     }
   }
 
-  // If no specific failures but still blocked
+  // Mark downstream not_evaluated layers as "blocked upstream"
+  if (firstFailIndex >= 0) {
+    for (let i = firstFailIndex + 1; i < LAYER_ORDER.length; i++) {
+      const key = LAYER_ORDER[i];
+      const c = lc[key];
+      if (c && c.not_evaluated > 0 && c.pass === 0 && c.fail === 0) {
+        const lang = LAYER_LANG[key];
+        if (lang) {
+          reasons.push({
+            layer: key,
+            layerName: lang.name,
+            message: 'Blocked upstream',
+            detail: `Waiting for ${LAYER_LANG[LAYER_ORDER[firstFailIndex]]?.name ?? 'upstream layer'} to pass`,
+          });
+        }
+      }
+    }
+  }
+
+  // If no specific failures but no event emitted
+  if (reasons.length === 0 && emitted === 0) {
+    reasons.push({
+      layer: 'none',
+      layerName: 'System',
+      message: 'No full candidate formed yet',
+      detail: 'Layers are evaluating but no complete pass chain exists',
+    });
+  }
+
+  // If no failures and events emitted (shouldn't normally reach here, but safety)
   if (reasons.length === 0) {
     reasons.push({
-      layer: 'unknown',
+      layer: 'none',
       layerName: 'System',
       message: 'Waiting for structural conditions',
       detail: 'No active pressure context detected',
@@ -111,7 +160,9 @@ export const WhyBlockedPanel: React.FC = () => {
   const spe = status?.spe;
   const lc = spe?.layer_counts ?? {};
   const raw = spe?.raw_evaluations ?? 0;
-  const reasons = getBlockReasons(lc, raw);
+  const accountingValid = spe?.accounting_valid ?? true;
+  const emitted = spe?.emitted_events ?? 0;
+  const reasons = getBlockReasons(lc, raw, accountingValid, emitted);
 
   return (
     <div style={S.panel}>

@@ -14,16 +14,21 @@ function classifyRegime(market: any, spe: any): { regime: string; color: string;
   return { regime: 'IDLE', color: T.text.dim, explanation: 'Market is idle — no structural pressure context' };
 }
 
-function getWhatToDo(spe: any): { text: string; color: string } {
+function getWhatToDo(spe: any, market: any): { text: string; color: string } {
   const raw = spe?.raw_evaluations ?? 0;
   const full8 = spe?.full_8_layer_passes ?? 0;
+  const emitted = spe?.emitted_events ?? 0;
   const currentState = spe?.current_state ?? 'IDLE';
+  const freq = market?.trade_frequency ?? 0;
 
-  if (full8 > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
+  if ((full8 > 0 || emitted > 0) && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
     return { text: 'Candidate detected — review manually', color: T.green.primary };
   }
   if (raw > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
     return { text: 'Wait for pressure — observing structural conditions', color: T.status.warning };
+  }
+  if (freq < 1 && currentState === 'IDLE') {
+    return { text: 'Low activity environment — SHORT_STRESS should not activate here', color: T.text.muted };
   }
   if (raw === 0) {
     return { text: 'Market idle — observe only', color: T.text.muted };
@@ -36,7 +41,7 @@ export const MarketStatePanel: React.FC = () => {
   const market = status?.market;
   const spe = status?.spe;
   const { regime, color, explanation } = classifyRegime(market, spe);
-  const whatToDo = getWhatToDo(spe);
+  const whatToDo = getWhatToDo(spe, market);
 
   return (
     <div style={S.panel}>

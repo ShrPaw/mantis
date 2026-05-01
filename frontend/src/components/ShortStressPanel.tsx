@@ -15,41 +15,55 @@ function getChecklistItems(spe: any, market: any): CheckItem[] {
   const raw = spe?.raw_evaluations ?? 0;
   const currentState = spe?.current_state ?? 'IDLE';
   const full8 = spe?.full_8_layer_passes ?? 0;
+  const emitted = spe?.emitted_events ?? 0;
   const freq = market?.trade_frequency ?? 0;
   const highVolume = freq > 3;
   const highVolatility = currentState === 'CASCADE' || currentState === 'UNWIND';
-  const candidateActive = full8 > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND');
+  const candidateActive = (full8 > 0 || emitted > 0) && (currentState === 'CASCADE' || currentState === 'UNWIND');
+
+  // L1 Context Gate status
+  const l1 = lc['L1_context_gate'];
+  let l1Status: 'pass' | 'fail' | 'neutral' = 'neutral';
+  if (l1) {
+    if (l1.pass > 0) l1Status = 'pass';
+    else if (l1.fail > 0) l1Status = 'fail';
+  }
 
   return [
     {
-      label: 'Direction allowed',
+      label: 'Direction model',
       value: 'SHORT ONLY',
-      status: 'note',
+      status: 'note' as const,
     },
     {
       label: 'Market state',
-      value: currentState === 'IDLE' ? 'IDLE' : `${currentState} required`,
-      status: currentState === 'CASCADE' || currentState === 'UNWIND' ? 'pass' : 'fail',
+      value: currentState === 'IDLE' ? 'IDLE — CASCADE/UNWIND required' : currentState,
+      status: currentState === 'CASCADE' || currentState === 'UNWIND' ? 'pass' as const : 'fail' as const,
     },
     {
-      label: 'High volume',
+      label: 'High volume regime',
       value: highVolume ? 'YES' : 'NO',
-      status: highVolume ? 'pass' : 'fail',
+      status: highVolume ? 'pass' as const : 'fail' as const,
     },
     {
-      label: 'High volatility',
+      label: 'High volatility regime',
       value: highVolatility ? 'YES' : 'NO',
-      status: highVolatility ? 'pass' : 'fail',
+      status: highVolatility ? 'pass' as const : 'fail' as const,
+    },
+    {
+      label: 'L1 Context Gate',
+      value: l1Status === 'pass' ? 'PASS' : l1Status === 'fail' ? 'FAIL' : 'NOT EVALUATED',
+      status: l1Status,
     },
     {
       label: 'Full 8-layer pass',
       value: full8 > 0 ? `YES (${full8})` : 'NO',
-      status: full8 > 0 ? 'pass' : 'fail',
+      status: full8 > 0 ? 'pass' as const : 'fail' as const,
     },
     {
       label: 'Observation-only',
       value: 'YES',
-      status: 'note',
+      status: 'note' as const,
     },
     {
       label: 'Execution disabled',
@@ -115,8 +129,27 @@ export const ShortStressPanel: React.FC = () => {
   const items = getChecklistItems(spe, market);
   const raw = spe?.raw_evaluations ?? 0;
   const full8 = spe?.full_8_layer_passes ?? 0;
+  const emitted = spe?.emitted_events ?? 0;
   const currentState = spe?.current_state ?? 'IDLE';
-  const candidateActive = full8 > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND');
+  const candidateActive = (full8 > 0 || emitted > 0) && (currentState === 'CASCADE' || currentState === 'UNWIND');
+
+  // Determine readiness status
+  let readiness: 'INACTIVE' | 'WATCH' | 'CANDIDATE' = 'INACTIVE';
+  let readinessColor = T.text.muted;
+  let readinessDetail = 'Waiting for structural pressure context.';
+  if (candidateActive) {
+    readiness = 'CANDIDATE';
+    readinessColor = T.green.primary;
+    readinessDetail = `${emitted} candidate(s) emitted in ${currentState}. Review manually.`;
+  } else if (raw > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
+    readiness = 'WATCH';
+    readinessColor = T.status.warning;
+    readinessDetail = `${currentState} detected — layers evaluating. No full candidate yet.`;
+  } else if (raw > 0) {
+    readiness = 'WATCH';
+    readinessColor = T.status.warning;
+    readinessDetail = 'SPE evaluating — downstream layers blocking.';
+  }
 
   return (
     <div style={S.panel}>
@@ -165,6 +198,14 @@ export const ShortStressPanel: React.FC = () => {
           No valid SHORT_STRESS context. System intentionally silent.
         </div>
       )}
+
+      {/* Readiness status footer */}
+      <div style={S.readinessBox}>
+        <span style={{ ...S.readinessLabel, color: readinessColor }}>
+          {readiness}
+        </span>
+        <span style={S.readinessDetail}>{readinessDetail}</span>
+      </div>
 
       <div style={S.footer}>
         ⚠ Observation-only — no execution — context detection for validation
@@ -250,5 +291,25 @@ const S: Record<string, React.CSSProperties> = {
     textAlign: 'center',
     fontStyle: 'italic',
     letterSpacing: 0.3,
+  },
+  readinessBox: {
+    marginTop: 6,
+    padding: '5px 8px',
+    background: T.bg.card,
+    borderRadius: 4,
+    border: `1px solid ${T.border.mid}`,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  readinessLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 2,
+  },
+  readinessDetail: {
+    fontSize: 9,
+    color: T.text.dim,
+    lineHeight: 1.3,
   },
 };

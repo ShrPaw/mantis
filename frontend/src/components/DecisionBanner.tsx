@@ -60,8 +60,8 @@ function deriveDecision(
   const l1 = lc['L1_context_gate'];
   const l1Blocking = l1 && l1.fail > 0 && l1.pass === 0;
 
-  // Candidate: full 8-layer pass + CASCADE/UNWIND
-  if (full8 > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
+  // Candidate: emitted events or full 8-layer pass in CASCADE/UNWIND
+  if ((emitted > 0 || full8 > 0) && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
     return {
       state: 'SHORT_STRESS_CANDIDATE',
       label: 'SHORT_STRESS CANDIDATE',
@@ -72,7 +72,19 @@ function deriveDecision(
     };
   }
 
-  // Watch: evaluations running but no full pass yet
+  // Watch: L1 passed some evaluations but no full pass yet
+  if (l1 && l1.pass > 0 && full8 === 0) {
+    return {
+      state: 'SHORT_STRESS_WATCH',
+      label: 'SHORT_STRESS WATCH',
+      color: T.status.warning,
+      glowColor: 'rgba(255,204,102,0.15)',
+      reason: 'L1 passed — downstream layers evaluating — no full candidate yet',
+      action: 'Observe. Waiting for full 8-layer confirmation.',
+    };
+  }
+
+  // Watch: evaluations running in CASCADE/UNWIND but layers still blocking
   if (raw > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
     return {
       state: 'SHORT_STRESS_WATCH',

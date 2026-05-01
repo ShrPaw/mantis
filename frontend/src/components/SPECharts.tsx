@@ -81,6 +81,7 @@ const MiniChart: React.FC<{ title: string; data: number[]; color: string; fill: 
 export const SPECharts: React.FC = () => {
   const history = useOperatorStore(s => s.metricHistory);
   const status = useOperatorStore(s => s.status);
+  const connected = useOperatorStore(s => s.connected);
   const spe = status?.spe;
   const raw = spe?.raw_evaluations ?? 0;
 
@@ -133,6 +134,11 @@ export const SPECharts: React.FC = () => {
             label="L1 always blocking?"
             answer={l1AlwaysBlocking ? 'YES' : 'NO'}
             color={l1AlwaysBlocking ? T.status.danger : T.green.primary}
+          />
+          <AnswerChip
+            label="System healthy?"
+            answer={connected ? 'YES' : 'NO DATA'}
+            color={connected ? T.green.primary : T.text.muted}
           />
         </div>
       )}

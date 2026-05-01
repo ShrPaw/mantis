@@ -69,22 +69,28 @@ function buildInterpretation(
 
   // SPE status
   if (raw === 0) {
-    parts.push('SPE has not evaluated any signals yet — system silent by design');
-  } else if (full8 > 0) {
+    if (freq < 1) {
+      parts.push('Low activity environment — L1 Context Gate has blocked all evaluations because market is IDLE, LOW_VOLUME, and lacks CASCADE/UNWIND pressure — SHORT_STRESS should not activate here');
+    } else {
+      parts.push('L1 Context Gate has blocked all evaluations — this usually means the market is IDLE, LOW_VOLUME, or lacks CASCADE/UNWIND pressure — system silent by design');
+    }
+  } else if (full8 > 0 || emitted > 0) {
     parts.push(`SPE passed all 8 layers — ${emitted} SHORT_STRESS candidate(s) emitted`);
   } else {
     parts.push(`SPE is blocked at ${blockLayer} because ${blockReason}`);
   }
 
   // SHORT_STRESS status
-  if (full8 > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
+  if ((full8 > 0 || emitted > 0) && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
     parts.push('SHORT_STRESS is active — review candidate manually');
   } else {
     parts.push('SHORT_STRESS is inactive');
   }
 
   // Final state
-  if (currentState === 'IDLE' && raw === 0) {
+  if (currentState === 'IDLE' && raw === 0 && freq < 1) {
+    parts.push('Low activity environment — this is a no-context observation state');
+  } else if (currentState === 'IDLE' && raw === 0) {
     parts.push('This is a no-context observation state');
   } else if (currentState === 'IDLE') {
     parts.push('This is an observation-only state');
