@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useOperatorStore } from '../store/operatorStore';
 
 const POLL_INTERVAL = 3000; // 3 seconds
-const MAX_HISTORY = 200; // max metric snapshots kept
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export function useOperatorPolling(intervalMs: number = POLL_INTERVAL) {
   const timerRef = useRef<ReturnType<typeof setInterval>>();
@@ -17,12 +17,23 @@ export function useOperatorPolling(intervalMs: number = POLL_INTERVAL) {
 
   const poll = useCallback(async () => {
     try {
-      const resp = await fetch('/operator/status');
+      const resp = await fetch(`${API_BASE}/operator/status`);
       if (!resp.ok) {
         setError(`HTTP ${resp.status}`);
         return;
       }
-      const data = await resp.json();
+      const text = await resp.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+          setError('Backend API unreachable or wrong API base URL');
+        } else {
+          setError('Invalid JSON response');
+        }
+        return;
+      }
       setOperatorStatus(data);
       setConnected(true);
       setError(null);
