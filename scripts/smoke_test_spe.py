@@ -404,7 +404,7 @@ def main():
         start_time=start_time,
     )
 
-    with open(args.output, "w") as f:
+    with open(args.output, "w", encoding="utf-8") as f:
         f.write(report)
 
     print(f"\n✅ Report written to {args.output}")
