@@ -1,4 +1,4 @@
-// MANTIS Operator Dashboard — Header (holographic green theme)
+// MANTIS Operator Dashboard — Header (compact system status)
 import React from 'react';
 import { useOperatorStore } from '../store/operatorStore';
 import { T } from '../styles/operatorTheme';
@@ -39,6 +39,8 @@ export const OperatorHeader: React.FC = () => {
         <Divider />
         <Metric label="SPE" value={spe?.enabled ? 'ACTIVE' : 'OFF'} color={spe?.enabled ? T.green.primary : T.text.muted} />
         <Divider />
+        <Metric label="EVALS" value={(spe?.raw_evaluations ?? 0).toLocaleString()} color={spe?.raw_evaluations ? T.green.primary : T.text.muted} />
+        <Divider />
         <span style={S.obsBadge}>⚠ OBSERVATION-ONLY</span>
       </div>
 
@@ -52,25 +54,25 @@ export const OperatorHeader: React.FC = () => {
 };
 
 const StatusDot: React.FC<{ ok: boolean; label: string }> = ({ ok, label }) => (
-  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
     <span style={{
       color: ok ? T.green.primary : T.status.danger,
       fontSize: 10,
       textShadow: ok ? `0 0 6px ${T.green.glowStrong}` : 'none',
     }}>●</span>
-    <span style={{ color: ok ? T.green.primary : T.status.danger, fontWeight: 700, letterSpacing: 1, fontSize: 10 }}>{label}</span>
+    <span style={{ color: ok ? T.green.primary : T.status.danger, fontWeight: 700, letterSpacing: 1, fontSize: 9 }}>{label}</span>
   </span>
 );
 
 const Metric: React.FC<{ label: string; value: string; color?: string }> = ({ label, value, color }) => (
-  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-    <span style={{ color: T.text.muted, fontSize: 8, letterSpacing: 1 }}>{label}</span>
-    <span style={{ color: color || T.text.main, fontWeight: 600, fontSize: 10 }}>{value}</span>
+  <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+    <span style={{ color: T.text.muted, fontSize: 7, letterSpacing: 1 }}>{label}</span>
+    <span style={{ color: color || T.text.main, fontWeight: 600, fontSize: 9 }}>{value}</span>
   </span>
 );
 
 const Divider = () => (
-  <span style={{ width: 1, height: 14, background: T.border.mid, margin: '0 2px' }} />
+  <span style={{ width: 1, height: 12, background: T.border.mid, margin: '0 1px' }} />
 );
 
 const ViewToggle: React.FC = () => (
@@ -103,22 +105,22 @@ const S: Record<string, React.CSSProperties> = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '4px 14px',
+    padding: '3px 12px',
     background: 'linear-gradient(180deg, #0a1218 0%, #070e14 100%)',
     borderBottom: `1px solid ${T.border.mid}`,
     flexShrink: 0,
-    height: 32,
+    height: 28,
     zIndex: 10,
     boxShadow: `0 1px 8px rgba(0,0,0,0.3), inset 0 -1px 0 ${T.border.dim}`,
   },
-  left: { display: 'flex', alignItems: 'center', gap: 8 },
+  left: { display: 'flex', alignItems: 'center', gap: 6 },
   logo: {
-    fontSize: 14,
+    fontSize: 12,
     color: T.green.primary,
     textShadow: `0 0 10px ${T.green.glowStrong}`,
   },
   title: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 700,
     color: T.green.primary,
     letterSpacing: 3,
@@ -128,7 +130,7 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 7,
     color: T.green.primary,
     letterSpacing: 2,
-    padding: '1px 5px',
+    padding: '1px 4px',
     border: `1px solid ${T.border.bright}`,
     borderRadius: 3,
     background: T.green.glow,
@@ -138,21 +140,21 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 7,
     color: T.text.muted,
     letterSpacing: 2,
-    padding: '1px 5px',
+    padding: '1px 4px',
     border: `1px solid ${T.border.dim}`,
     borderRadius: 3,
   },
-  center: { display: 'flex', alignItems: 'center', gap: 6 },
+  center: { display: 'flex', alignItems: 'center', gap: 4 },
   obsBadge: {
-    fontSize: 8,
+    fontSize: 7,
     color: T.accent.gold,
-    padding: '2px 6px',
+    padding: '1px 5px',
     border: `1px solid rgba(240, 208, 96, 0.25)`,
     borderRadius: 3,
     background: 'rgba(240, 208, 96, 0.06)',
     letterSpacing: 1,
   },
-  right: { display: 'flex', alignItems: 'center', gap: 8 },
-  time: { color: T.text.muted, fontSize: 9 },
-  err: { color: T.status.danger, fontSize: 9 },
+  right: { display: 'flex', alignItems: 'center', gap: 6 },
+  time: { color: T.text.muted, fontSize: 8 },
+  err: { color: T.status.danger, fontSize: 8 },
 };

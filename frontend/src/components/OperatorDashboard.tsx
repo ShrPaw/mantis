@@ -1,8 +1,17 @@
-// MANTIS Operator Dashboard — Main Layout (holographic theme)
+// MANTIS Operator Dashboard — Main Layout (decision-oriented redesign)
+// Layout hierarchy:
+//   Row 1: Decision Banner (full width) + System Status compact
+//   Row 2: Market State | SHORT_STRESS Checklist | Live Metrics
+//   Row 3: Why Blocked | Current Interpretation
+//   Row 4: SPE Layer Survival (full width)
+//   Row 5: SPE Charts | Event Engine | Observation Logger
 import React from 'react';
 import { useOperatorPolling } from '../hooks/useOperatorPolling';
 import { useOperatorStore } from '../store/operatorStore';
 import { OperatorHeader } from './OperatorHeader';
+import { DecisionBanner } from './DecisionBanner';
+import { InterpretationPanel } from './InterpretationPanel';
+import { WhyBlockedPanel } from './WhyBlockedPanel';
 import { MarketStatePanel } from './MarketStatePanel';
 import { SPELayerSurvival } from './SPELayerSurvival';
 import { ShortStressPanel } from './ShortStressPanel';
@@ -33,18 +42,40 @@ export const OperatorDashboard: React.FC = () => {
 
       {connected && status && (
         <div style={S.grid}>
+          {/* Row 1: Decision Banner full width */}
+          <div style={S.row}>
+            <div style={S.cellFull}><DecisionBanner /></div>
+          </div>
+
+          {/* Row 2: Market State | SHORT_STRESS Checklist | Live Metrics */}
           <div style={S.row}>
             <div style={S.cellThird}><MarketStatePanel /></div>
             <div style={S.cellThird}><ShortStressPanel /></div>
             <div style={S.cellThird}><OperatorMetrics /></div>
           </div>
+
+          {/* Row 3: Why Blocked | Current Interpretation */}
+          <div style={S.row}>
+            <div style={S.cellHalf}><WhyBlockedPanel /></div>
+            <div style={S.cellHalf}>
+              <div style={S.rightColStack}>
+                <InterpretationPanel />
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <ObservationLoggerPanel />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 4: SPE Layer Survival full width */}
           <div style={S.row}>
             <div style={S.cellFull}><SPELayerSurvival /></div>
           </div>
+
+          {/* Row 5: SPE Charts | Event Engine */}
           <div style={S.row}>
-            <div style={S.cellHalf}><SPECharts /></div>
-            <div style={S.cellQuarter}><EventEnginePanel /></div>
-            <div style={S.cellQuarter}><ObservationLoggerPanel /></div>
+            <div style={S.cellTwoThird}><SPECharts /></div>
+            <div style={S.cellThird}><EventEnginePanel /></div>
           </div>
         </div>
       )}
@@ -87,16 +118,23 @@ const S: Record<string, React.CSSProperties> = {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    gap: 2,
-    padding: '4px',
+    gap: 3,
+    padding: '4px 4px 2px',
     overflow: 'auto',
     minHeight: 0,
   },
-  row: { display: 'flex', gap: 2, minHeight: 0 },
+  row: { display: 'flex', gap: 3, minHeight: 0 },
   cellThird: { flex: 1, minWidth: 0, display: 'flex' },
-  cellHalf: { flex: 2, minWidth: 0, display: 'flex' },
-  cellQuarter: { flex: 1, minWidth: 0, display: 'flex' },
+  cellTwoThird: { flex: 2, minWidth: 0, display: 'flex' },
+  cellHalf: { flex: 1, minWidth: 0, display: 'flex' },
   cellFull: { flex: 1, minWidth: 0, display: 'flex' },
+  rightColStack: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 3,
+    width: '100%',
+    height: '100%',
+  },
   loading: {
     flex: 1,
     display: 'flex',

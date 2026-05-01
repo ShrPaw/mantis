@@ -1,4 +1,5 @@
-// MANTIS Operator Dashboard — Market State Panel (holographic theme)
+// MANTIS Operator Dashboard — Market State Panel (redesigned)
+// Shows market regime, SPE state, and explicit "what to do" actions
 import React from 'react';
 import { useOperatorStore } from '../store/operatorStore';
 import { T } from '../styles/operatorTheme';
@@ -13,15 +14,21 @@ function classifyRegime(market: any, spe: any): { regime: string; color: string;
   return { regime: 'IDLE', color: T.text.dim, explanation: 'Market is idle — no structural pressure context' };
 }
 
-function getBlockReason(spe: any): string {
-  if (!spe?.enabled) return 'SPE module disabled';
-  const lc = spe?.layer_counts ?? {};
-  const l1 = lc['L1_context_gate'];
-  if (l1 && l1.fail > 0 && l1.pass === 0) return 'L1 blocked — no CASCADE/UNWIND state';
-  const l2 = lc['L2_pressure'];
-  if (l2 && l2.fail > 0 && l2.pass === 0) return 'L2 blocked — no crowd pressure detected';
-  if (spe.current_state === 'IDLE') return 'L1 blocked — market is IDLE';
-  return 'Waiting for structural conditions';
+function getWhatToDo(spe: any): { text: string; color: string } {
+  const raw = spe?.raw_evaluations ?? 0;
+  const full8 = spe?.full_8_layer_passes ?? 0;
+  const currentState = spe?.current_state ?? 'IDLE';
+
+  if (full8 > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
+    return { text: 'Candidate detected — review manually', color: T.green.primary };
+  }
+  if (raw > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND')) {
+    return { text: 'Wait for pressure — observing structural conditions', color: T.status.warning };
+  }
+  if (raw === 0) {
+    return { text: 'Market idle — observe only', color: T.text.muted };
+  }
+  return { text: 'Context invalid — observe only', color: T.text.dim };
 }
 
 export const MarketStatePanel: React.FC = () => {
@@ -29,7 +36,7 @@ export const MarketStatePanel: React.FC = () => {
   const market = status?.market;
   const spe = status?.spe;
   const { regime, color, explanation } = classifyRegime(market, spe);
-  const blockReason = getBlockReason(spe);
+  const whatToDo = getWhatToDo(spe);
 
   return (
     <div style={S.panel}>
@@ -41,6 +48,13 @@ export const MarketStatePanel: React.FC = () => {
         </span>
       </div>
       <div style={S.explanation}>{explanation}</div>
+
+      {/* What to do */}
+      <div style={S.actionBox}>
+        <span style={S.actionLabel}>WHAT TO DO</span>
+        <span style={{ ...S.actionText, color: whatToDo.color }}>{whatToDo.text}</span>
+      </div>
+
       <div style={S.divider} />
       <div style={S.detailGrid}>
         <Detail label="Price" value={market?.last_price ? `$${market.last_price.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'} />
@@ -48,19 +62,8 @@ export const MarketStatePanel: React.FC = () => {
         <Detail label="Session H/L" value={market ? `$${market.session_high?.toLocaleString()} / $${market.session_low?.toLocaleString()}` : '—'} />
         <Detail label="Frequency" value={market?.trade_frequency ? `${market.trade_frequency.toFixed(1)}/s` : '—'} />
         <Detail label="Imbalance" value={market?.imbalance != null ? `${(market.imbalance * 100).toFixed(1)}%` : '—'} />
-        <Detail label="Spread" value="N/A" />
+        <Detail label="Delta" value={market?.delta != null ? `${market.delta >= 0 ? '+' : ''}${market.delta.toFixed(3)}` : '—'} />
       </div>
-      <div style={S.divider} />
-      <div style={S.blockBox}>
-        <span style={{ color: T.text.muted, fontSize: 8, letterSpacing: 1 }}>SPE STATUS</span>
-        <span style={{ color: T.text.mid, fontSize: 10 }}>{blockReason}</span>
-      </div>
-      {spe?.raw_evaluations === 0 && (
-        <div style={S.silentBanner}>
-          <span style={{ color: T.green.primary, marginRight: 6 }}>◆</span>
-          System silent by design. No valid high-pressure context.
-        </div>
-      )}
     </div>
   );
 };
@@ -100,27 +103,27 @@ const S: Record<string, React.CSSProperties> = {
     border: '1px solid',
     letterSpacing: 1,
   },
-  explanation: { fontSize: 10, color: T.text.dim, lineHeight: 1.4 },
-  divider: { height: 1, background: T.border.dim, margin: '8px 0' },
-  detailGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' },
-  blockBox: {
+  explanation: { fontSize: 10, color: T.text.dim, lineHeight: 1.4, marginBottom: 8 },
+  actionBox: {
     padding: '6px 8px',
     background: T.bg.card,
     borderRadius: 4,
-    border: `1px solid ${T.border.dim}`,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 2,
-  },
-  silentBanner: {
-    marginTop: 6,
-    padding: '6px 10px',
-    background: T.green.glow,
     border: `1px solid ${T.border.bright}`,
-    borderRadius: 4,
-    fontSize: 10,
-    color: T.green.primary,
-    textAlign: 'center' as const,
-    textShadow: `0 0 6px ${T.green.glow}`,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    marginBottom: 4,
   },
+  actionLabel: {
+    fontSize: 7,
+    color: T.text.muted,
+    letterSpacing: 1,
+    fontWeight: 700,
+  },
+  actionText: {
+    fontSize: 10,
+    fontWeight: 600,
+  },
+  divider: { height: 1, background: T.border.dim, margin: '6px 0' },
+  detailGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 14px' },
 };

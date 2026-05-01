@@ -1,48 +1,127 @@
-// MANTIS Operator Dashboard — SHORT_STRESS Panel (holographic theme)
+// MANTIS Operator Dashboard — SHORT_STRESS Checklist (redesigned)
+// Large checklist rows with green checkmarks, red blocks, gray for not evaluated
 import React from 'react';
 import { useOperatorStore } from '../store/operatorStore';
 import { T } from '../styles/operatorTheme';
 
-function analyzeBlockReason(lc: Record<string, { pass: number; fail: number; not_evaluated: number }>): string {
-  const order = ['L1_context_gate','L2_pressure','L3_displacement','L4_sweep','L5_trap','L6_execution_filter','L7_entry_zone','L8_exit_model','confidence_gate'];
-  const names: Record<string, string> = {
-    L1_context_gate: 'L1 — No CASCADE/UNWIND state',
-    L2_pressure: 'L2 — No crowd pressure detected',
-    L3_displacement: 'L3 — No displacement confirmed',
-    L4_sweep: 'L4 — No structural sweep',
-    L5_trap: 'L5 — No trap confirmation',
-    L6_execution_filter: 'L6 — Execution quality too low',
-    L7_entry_zone: 'L7 — No valid entry zone',
-    L8_exit_model: 'L8 — R:R insufficient',
-    confidence_gate: 'Confidence — Below threshold',
-  };
-  for (const key of order) {
-    const c = lc[key];
-    if (c && c.fail > 0 && c.pass === 0) return names[key] ?? key;
+interface CheckItem {
+  label: string;
+  value: string;
+  status: 'pass' | 'fail' | 'neutral' | 'note';
+}
+
+function getChecklistItems(spe: any, market: any): CheckItem[] {
+  const lc = spe?.layer_counts ?? {};
+  const raw = spe?.raw_evaluations ?? 0;
+  const currentState = spe?.current_state ?? 'IDLE';
+  const full8 = spe?.full_8_layer_passes ?? 0;
+  const freq = market?.trade_frequency ?? 0;
+  const highVolume = freq > 3;
+  const highVolatility = currentState === 'CASCADE' || currentState === 'UNWIND';
+  const candidateActive = full8 > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND');
+
+  return [
+    {
+      label: 'Direction allowed',
+      value: 'SHORT ONLY',
+      status: 'note',
+    },
+    {
+      label: 'Market state',
+      value: currentState === 'IDLE' ? 'IDLE' : `${currentState} required`,
+      status: currentState === 'CASCADE' || currentState === 'UNWIND' ? 'pass' : 'fail',
+    },
+    {
+      label: 'High volume',
+      value: highVolume ? 'YES' : 'NO',
+      status: highVolume ? 'pass' : 'fail',
+    },
+    {
+      label: 'High volatility',
+      value: highVolatility ? 'YES' : 'NO',
+      status: highVolatility ? 'pass' : 'fail',
+    },
+    {
+      label: 'Full 8-layer pass',
+      value: full8 > 0 ? `YES (${full8})` : 'NO',
+      status: full8 > 0 ? 'pass' : 'fail',
+    },
+    {
+      label: 'Observation-only',
+      value: 'YES',
+      status: 'note',
+    },
+    {
+      label: 'Execution disabled',
+      value: 'YES',
+      status: 'note',
+    },
+  ];
+}
+
+function StatusIcon({ status }: { status: CheckItem['status'] }) {
+  if (status === 'pass') {
+    return (
+      <span style={{
+        color: T.green.primary,
+        fontSize: 14,
+        fontWeight: 700,
+        textShadow: `0 0 8px ${T.green.glowStrong}`,
+        lineHeight: 1,
+      }}>✓</span>
+    );
   }
-  if (lc['L1_context_gate']?.not_evaluated > 0) return 'L1 blocked — market is IDLE';
-  return 'No evaluations performed';
+  if (status === 'fail') {
+    return (
+      <span style={{
+        color: T.status.danger,
+        fontSize: 14,
+        fontWeight: 700,
+        textShadow: `0 0 6px rgba(255,95,95,0.3)`,
+        lineHeight: 1,
+      }}>✗</span>
+    );
+  }
+  if (status === 'note') {
+    return (
+      <span style={{
+        color: T.accent.gold,
+        fontSize: 11,
+        fontWeight: 700,
+        lineHeight: 1,
+      }}>◆</span>
+    );
+  }
+  return (
+    <span style={{
+      color: T.text.muted,
+      fontSize: 12,
+      lineHeight: 1,
+    }}>—</span>
+  );
+}
+
+function getStatusColor(status: CheckItem['status']): string {
+  if (status === 'pass') return T.green.primary;
+  if (status === 'fail') return T.status.danger;
+  if (status === 'note') return T.accent.gold;
+  return T.text.muted;
 }
 
 export const ShortStressPanel: React.FC = () => {
   const status = useOperatorStore(s => s.status);
   const spe = status?.spe;
-  const lc = spe?.layer_counts ?? {};
+  const market = status?.market;
+  const items = getChecklistItems(spe, market);
   const raw = spe?.raw_evaluations ?? 0;
-  const currentState = spe?.current_state ?? 'IDLE';
-  const emitted = spe?.emitted_events ?? 0;
   const full8 = spe?.full_8_layer_passes ?? 0;
+  const currentState = spe?.current_state ?? 'IDLE';
   const candidateActive = full8 > 0 && (currentState === 'CASCADE' || currentState === 'UNWIND');
-  const blockReason = analyzeBlockReason(lc);
-  const freq = status?.market?.trade_frequency ?? 0;
-  const highVolume = freq > 3;
-  const highVolatility = currentState === 'CASCADE' || currentState === 'UNWIND';
 
   return (
     <div style={S.panel}>
-      <div style={S.title}>SPE_SHORT_STRESS CANDIDATE</div>
-
-      <div style={{ marginBottom: 8 }}>
+      <div style={S.header}>
+        <span style={S.title}>SHORT_STRESS CHECKLIST</span>
         <span style={{
           ...S.candidateBadge,
           background: candidateActive ? 'rgba(57,255,136,0.12)' : 'rgba(90,138,112,0.06)',
@@ -50,26 +129,35 @@ export const ShortStressPanel: React.FC = () => {
           borderColor: candidateActive ? T.green.primary + '40' : T.border.dim,
           textShadow: candidateActive ? `0 0 10px ${T.green.glow}` : 'none',
         }}>
-          {candidateActive ? '● CANDIDATE ACTIVE' : '○ NO CANDIDATE'}
+          {candidateActive ? '● CANDIDATE' : '○ NO CANDIDATE'}
         </span>
       </div>
 
-      <div style={S.grid}>
-        <Row label="Direction" value="SHORT ONLY" color={T.status.danger} />
-        <Row label="Crowd Direction" value={candidateActive ? 'LONG_CROWD' : '—'} color={candidateActive ? T.status.warning : T.text.muted} />
-        <Row label="Mantis State" value={currentState} color={currentState === 'IDLE' ? T.text.muted : T.status.warning} />
-        <Row label="High Volume" value={highVolume ? 'YES' : 'NO'} color={highVolume ? T.green.primary : T.text.muted} />
-        <Row label="High Volatility" value={highVolatility ? 'YES' : 'NO'} color={highVolatility ? T.green.primary : T.text.muted} />
-        <Row label="Full 8-Layer Pass" value={full8 > 0 ? `YES (${full8})` : 'NO'} color={full8 > 0 ? T.green.primary : T.status.danger} />
-        <Row label="Total Candidates" value={emitted.toString()} color={emitted > 0 ? T.green.primary : T.text.muted} />
+      <div style={S.checklist}>
+        {items.map((item, i) => (
+          <div key={i} style={{
+            ...S.checkRow,
+            borderLeftColor: getStatusColor(item.status) + '40',
+          }}>
+            <StatusIcon status={item.status} />
+            <span style={S.checkLabel}>{item.label}</span>
+            <span style={{
+              ...S.checkValue,
+              color: getStatusColor(item.status),
+              textShadow: item.status === 'pass' ? `0 0 6px ${T.green.glow}` : 'none',
+            }}>
+              {item.value}
+            </span>
+          </div>
+        ))}
       </div>
 
-      <div style={S.divider} />
-
-      <div style={S.blockBox}>
-        <span style={{ color: T.text.muted, fontSize: 8, letterSpacing: 1 }}>BLOCK REASON</span>
-        <span style={{ color: T.text.mid, fontSize: 10 }}>{raw > 0 ? blockReason : 'No evaluations performed'}</span>
-      </div>
+      {raw === 0 && (
+        <div style={S.silentBanner}>
+          <span style={{ color: T.green.primary, marginRight: 6 }}>◆</span>
+          0 SPE events — system silent by design.
+        </div>
+      )}
 
       {!candidateActive && raw > 0 && (
         <div style={S.silentBanner}>
@@ -77,26 +165,13 @@ export const ShortStressPanel: React.FC = () => {
           No valid SHORT_STRESS context. System intentionally silent.
         </div>
       )}
-      {raw === 0 && (
-        <div style={S.silentBanner}>
-          <span style={{ color: T.green.primary, marginRight: 6 }}>◆</span>
-          System silent by design. No valid high-pressure context.
-        </div>
-      )}
 
-      <div style={{ marginTop: 'auto', paddingTop: 6, fontSize: 7, color: T.text.faint, textAlign: 'center', fontStyle: 'italic' }}>
+      <div style={S.footer}>
         ⚠ Observation-only — no execution — context detection for validation
       </div>
     </div>
   );
 };
-
-const Row: React.FC<{ label: string; value: string; color: string }> = ({ label, value, color }) => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10 }}>
-    <span style={{ color: T.text.dim }}>{label}</span>
-    <span style={{ color, fontWeight: 600, textShadow: `0 0 4px ${color}20` }}>{value}</span>
-  </div>
-);
 
 const S: Record<string, React.CSSProperties> = {
   panel: {
@@ -109,36 +184,71 @@ const S: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     boxShadow: `inset 0 1px 0 rgba(57,255,136,0.03)`,
   },
-  title: { fontSize: 9, fontWeight: 700, color: T.green.primary, letterSpacing: 2, marginBottom: 8, textShadow: `0 0 8px ${T.green.glow}` },
-  candidateBadge: {
-    display: 'inline-block',
-    fontSize: 11,
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 9,
     fontWeight: 700,
-    padding: '4px 12px',
-    borderRadius: 4,
+    color: T.green.primary,
+    letterSpacing: 2,
+    textShadow: `0 0 8px ${T.green.glow}`,
+  },
+  candidateBadge: {
+    fontSize: 9,
+    fontWeight: 700,
+    padding: '2px 8px',
+    borderRadius: 3,
     border: '1px solid',
     letterSpacing: 1,
   },
-  grid: { display: 'flex', flexDirection: 'column' as const, gap: 4 },
-  divider: { height: 1, background: T.border.dim, margin: '8px 0' },
-  blockBox: {
-    padding: '6px 8px',
+  checklist: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 3,
+    flex: 1,
+  },
+  checkRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '5px 8px',
     background: T.bg.card,
     borderRadius: 4,
-    border: `1px solid ${T.border.dim}`,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 2,
+    borderLeft: '3px solid',
+  },
+  checkLabel: {
+    fontSize: 10,
+    color: T.text.dim,
+    flex: 1,
+  },
+  checkValue: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    textAlign: 'right',
   },
   silentBanner: {
     marginTop: 6,
-    padding: '6px 10px',
+    padding: '5px 10px',
     background: T.green.glow,
     border: `1px solid ${T.border.bright}`,
     borderRadius: 4,
     fontSize: 10,
     color: T.green.primary,
-    textAlign: 'center' as const,
+    textAlign: 'center',
     textShadow: `0 0 6px ${T.green.glow}`,
+  },
+  footer: {
+    marginTop: 'auto',
+    paddingTop: 6,
+    fontSize: 7,
+    color: T.text.faint,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    letterSpacing: 0.3,
   },
 };

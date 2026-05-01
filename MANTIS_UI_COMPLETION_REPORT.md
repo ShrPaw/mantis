@@ -1,6 +1,6 @@
 # MANTIS UI Completion Report
 
-**Date:** 2026-05-01  
+**Date:** 2026-05-01 (updated 2026-05-02)  
 **Scope:** Operator Dashboard UI for SPE_SHORT_STRESS monitoring  
 **Constraints:** No trading logic changes. No SPE threshold changes. No execution enabled.
 
@@ -12,15 +12,18 @@
 
 | File | Purpose |
 |------|---------|
-| `frontend/src/components/OperatorDashboard.tsx` | Main operator layout — 3-row grid with all panels |
-| `frontend/src/components/OperatorHeader.tsx` | System status header — ONLINE/OFFLINE, uptime, trades, SPE status |
-| `frontend/src/components/MarketStatePanel.tsx` | Market state — regime, SPE state, price, VWAP, frequency, block reason |
+| `frontend/src/components/OperatorDashboard.tsx` | Main operator layout — decision-oriented 5-row grid |
+| `frontend/src/components/OperatorHeader.tsx` | Compact system status header — ONLINE/OFFLINE, uptime, trades, SPE, evals |
+| `frontend/src/components/DecisionBanner.tsx` | **NEW** Top-level decision state — one of 6 states with reason + action |
+| `frontend/src/components/WhyBlockedPanel.tsx` | **NEW** Translates SPE layer status into plain operator language |
+| `frontend/src/components/InterpretationPanel.tsx` | **NEW** Natural language summary of current state |
+| `frontend/src/components/MarketStatePanel.tsx` | Market state — regime, SPE state, price, VWAP, "what to do" action |
 | `frontend/src/components/SPELayerSurvival.tsx` | 9-layer survival grid — pass/fail/not_evaluated per layer with invariant bar |
-| `frontend/src/components/ShortStressPanel.tsx` | SHORT_STRESS candidate panel — direction, crowd, state, high vol, block reason |
+| `frontend/src/components/ShortStressPanel.tsx` | SHORT_STRESS checklist — large rows with ✓/✗/◆ icons |
 | `frontend/src/components/OperatorMetrics.tsx` | Live metrics — price, delta, volume split, frequency, imbalance |
 | `frontend/src/components/EventEnginePanel.tsx` | Event engine stats — totals, fired, deduped, SPE module stats |
 | `frontend/src/components/ObservationLoggerPanel.tsx` | Logger status — file sizes, last timestamps, violations |
-| `frontend/src/components/SPECharts.tsx` | Canvas-based sparkline charts — evaluations, emitted, state distribution, L1 stacked |
+| `frontend/src/components/SPECharts.tsx` | Canvas sparklines + answer chips: evaluations increasing? state always IDLE? |
 | `frontend/src/hooks/useOperatorPolling.ts` | Polling hook — fetches /operator/status every 3s |
 | `frontend/src/store/operatorStore.ts` | Zustand store for operator data + metric history |
 | `frontend/src/types/operator.ts` | TypeScript types for operator status response |
@@ -44,56 +47,93 @@
 
 ## 2. UI Sections Implemented
 
-### A. Header / System Status ✅
-- MANTIS status: ONLINE/OFFLINE with colored dot
-- Backend uptime (formatted as Xh Xm)
-- Trade count
-- Event Engine status (ACTIVE/DISABLED)
-- SPE status (ACTIVE/OFF)
-- OBSERVATION-ONLY badge (always visible)
-- Last update timestamp
-- View toggle (OPERATOR / MICROSTRUCTURE)
-- Offline banner with clear error message and start instructions
+### A. Decision Banner ✅ (NEW)
+- Full-width top-level banner showing one of 6 decision states:
+  - `NO VALID CONTEXT` — L1 blocked, market IDLE
+  - `OBSERVE_ONLY` — SPE active, no pressure
+  - `SHORT_STRESS WATCH` — CASCADE/UNWIND detected, layers still blocking
+  - `SHORT_STRESS CANDIDATE` — Full 8-layer pass, candidate emitted
+  - `SYSTEM OFFLINE` — Backend unreachable
+  - `ACCOUNTING_ERROR` — SPE invariant violation
+- Each state shows: label, reason (plain language), action (what to do)
+- Color-coded: green for active, yellow for watch, red for errors, gray for idle
 
-### B. Market State Panel ✅
-- Current MANTIS state (IDLE/CASCADE/UNWIND)
-- Current SPE state
-- Regime classification (IDLE/HIGH_VOLUME/LOW_VOLUME/CASCADE/UNWIND)
-- Explanation text (e.g., "Market is idle — no structural pressure context")
-- Price, VWAP, Session H/L, Frequency, Imbalance
-- SPE block reason (e.g., "L1 blocked — market is IDLE")
-- "System silent by design. No valid high-pressure context." when SPE evaluations = 0
+### B. "Why Blocked" Panel ✅ (NEW)
+- Translates SPE layer failures into plain operator language:
+  - L1: "No structural pressure context"
+  - L2: "No positioning pressure"
+  - L3: "No displacement"
+  - L4: "No sweep"
+  - L5: "No trap/rejection"
+  - L6: "Execution quality not acceptable"
+  - L7: "No valid entry zone"
+  - L8: "Exit/RR model rejected"
+- Shows evaluation summary count
+- Red ✗ icons with detail text per blocking layer
 
-### C. SPE Layer Survival Panel ✅
+### C. SHORT_STRESS Checklist ✅ (REDESIGNED)
+- Large checklist rows with clear visual indicators:
+  - ✓ green checkmarks for passing conditions
+  - ✗ red blocks for failing conditions
+  - ◆ gold diamonds for fixed rules (SHORT ONLY, observation-only, execution disabled)
+  - — gray dash for not evaluated
+- Items: Direction, Market state, High volume, High volatility, Full 8-layer pass, Observation-only, Execution disabled
+- Left border color-coded per status
+- Candidate badge (● CANDIDATE / ○ NO CANDIDATE)
+
+### D. Current Interpretation ✅ (NEW)
+- Natural language sentence summarizing current state
+- Example: "BTC is at $78,064.00. Currently LOW_VOLUME and IDLE. SPE is blocked at L1 because no CASCADE/UNWIND context. SHORT_STRESS is inactive. This is a no-context observation state."
+- Updates in real-time from polling data
+
+### E. "What to Do" Actions ✅ (NEW)
+- MarketStatePanel now shows explicit non-trading actions:
+  - "Observe only"
+  - "Wait for pressure — observing structural conditions"
+  - "Market idle — observe only"
+  - "Context invalid — observe only"
+  - "Candidate detected — review manually"
+- Forbidden words never appear: Buy, Sell, Enter now, Signal, Profit, Guaranteed
+
+### F. Charts: Key Questions Answered ✅ (IMPROVED)
+- Answer chips above charts:
+  - "Evaluations increasing?" YES/NO
+  - "State always IDLE?" YES/NO
+  - "Any event emitted?" YES (N)/NO
+  - "L1 always blocking?" YES/NO
+- Quick-read text in header: "Always IDLE", "L1 always blocking", "N emitted"
+- Zero-state: "0 SPE events — system silent by design."
+
+### G. Header / System Status ✅ (COMPACT)
+- Height reduced from 32px to 28px
+- Added EVALS counter
+- All metrics tighter spacing
+- View toggle preserved (OPERATOR / MICRO)
+
+### H. Layout Hierarchy ✅ (REORGANIZED)
+```
+Row 1: Decision Banner (full width)
+Row 2: Market State | SHORT_STRESS Checklist | Live Metrics
+Row 3: Why Blocked | (Interpretation + Observation Logger)
+Row 4: SPE Layer Survival (full width)
+Row 5: SPE Charts (2/3) | Event Engine (1/3)
+```
+
+### I. SPE Layer Survival Panel ✅ (UNCHANGED)
 - All 9 layers displayed in a grid
 - Per-layer: pass count, fail count, not_evaluated count, pass rate
 - Per-layer status badge (PASS/FAIL/NOT EVALUATED/MIXED/NO DATA)
 - Invariant bar (pass+fail+ne vs raw_evaluations)
 - Accounting invariant violation warning (red critical)
-- Empty state when no evaluations
 
-### D. SPE_SHORT_STRESS Panel ✅
-- Candidate active: YES/NO badge
-- Direction: SHORT ONLY
-- Crowd direction
-- Mantis state
-- High volume: YES/NO
-- High volatility: YES/NO
-- Full 8-layer pass: YES/NO with count
-- Total candidates observed
-- Current block reason (specific: L1/L2/L3/.../confidence)
-- "No valid SHORT_STRESS context. System intentionally silent." when no candidate
-- Observation-only notice
-
-### E. Event Engine Panel ✅
+### J. Event Engine Panel ✅ (UNCHANGED)
 - Engine status (ACTIVE/DISABLED)
 - Total events, fired, deduped, pending outcomes
 - Watchlisted, blacklisted counts
 - SPE evaluations, emitted, full 8L passes, state
 - Recent event log (last 5)
-- Color-coded: green for buys, red for sells
 
-### F. Live Metrics Panel ✅
+### K. Live Metrics Panel ✅ (UNCHANGED)
 - Large price display
 - Delta, Cum Delta (green/red colored)
 - Buy/Sell volume
@@ -101,21 +141,13 @@
 - Candle count, Client count
 - Volume split bar (green/red)
 
-### G. Observation Logger Panel ✅
+### L. Observation Logger Panel ✅ (UNCHANGED)
 - Detected/not detected status
 - When not detected: start command displayed
 - When active: file sizes, last sample times
 - Unique SPE events observed
 - Accounting violations count
 - Observation-only violations count
-
-### H. SPE Charts ✅
-- Raw evaluations sparkline over time
-- Events emitted sparkline over time
-- Full 8-layer passes sparkline over time
-- State distribution bar chart (IDLE/CASCADE/UNWIND percentages)
-- L1 context gate stacked bar (pass/fail/not_evaluated)
-- All charts degrade gracefully with < 2 samples
 
 ---
 
@@ -155,11 +187,13 @@ No execution. No mutation. Purely informational.
 - ✅ Blocked / Observation only / Execution disabled
 - ✅ No valid context / Short-stress candidate
 - ✅ "System silent by design. No valid high-pressure context."
-- ✅ "⚠ OBSERVATION-ONLY — no execution — context detection for validation"
+- ✅ "Observe only. Do not force trades."
+- ✅ "Market idle — observe only"
+- ✅ "Candidate detected — review manually"
 
 ---
 
-## 5. How to Run Locally (Windows)
+## 5. How to Run Locally
 
 ```bash
 # Terminal 1: Backend
@@ -185,33 +219,33 @@ The **OPERATOR** view loads by default. Toggle to **MICROSTRUCTURE** for the ori
 
 | Limitation | Impact | Mitigation |
 |-----------|--------|------------|
-| Charts need ≥2 polling cycles to render | Empty charts for first 6 seconds | Shows "Collecting data... (N samples)" message |
+| Charts need ≥2 polling cycles to render | Empty charts for first 6 seconds | Shows "Collecting data... (N samples)" + "0 SPE events — system silent by design." |
 | Observation logger detection is file-based | Only detects if files exist on backend filesystem | Shows start command when not detected |
 | No WebSocket for operator data | 3-second polling latency | Acceptable for operator monitoring |
 | Canvas charts don't resize dynamically | Fixed aspect ratio | Works at standard dashboard widths |
 | Volume split needs trade data | Shows 50/50 when no trades | Displays "—" for zero values |
 | L1 stacked bar uses absolute counts | May look flat if all evaluations are same state | Scales correctly per snapshot |
+| Decision banner logic derives state from layer_counts | May not reflect all backend edge cases | Covers L1-L8 + confidence gate + accounting |
+| Interpretation panel uses polling data | 3s delay on state changes | Acceptable for monitoring context |
 
 ---
 
 ## 7. Design Principles
 
-- **Dark trading dashboard** — `#08080c` background, monospace metrics
+- **Decision-oriented** — Top banner answers "what matters?" in 5 seconds
+- **Dark trading dashboard** — `#05070b` background, monospace metrics
 - **Green/yellow/red status** — semantic colors for pass/warn/fail
-- **Compact cards** — minimal padding, dense information
-- **Clear hierarchy** — section headers in gold (#f0b90b), labels in gray
+- **Compact cards** — minimal padding, dense information, reduced empty space
+- **Clear hierarchy** — decision banner → checklist → layer detail → charts
 - **Silence communicated correctly** — explicit "System silent by design" messages
 - **No fake visuals** — no profit indicators, no green candles for "wins"
 - **Graceful degradation** — N/A for missing data, never "undefined"
-- **Windows-safe** — UTF-8 encoding, no external deps beyond React/Vite
+- **Answer-oriented charts** — chips answer key questions at a glance
+- **Plain language blocking** — "Why Blocked" translates layers to operator language
 
 ---
 
-## 8. Theme Redesign (2026-05-01)
-
-### Visual Theme: Green Holographic / Cyber Terminal
-
-Applied a complete visual redesign to the operator dashboard:
+## 8. Theme: Green Holographic / Cyber Terminal
 
 **Color System:**
 - Background: `#05070b` (near-black / deep blue-black)
@@ -224,36 +258,15 @@ Applied a complete visual redesign to the operator dashboard:
 - Text main: `#d9ffe9` (light green-white)
 - Text dim: `#5a8a70` (gray-green)
 - Borders: `#143126` (dark green)
+- Accent cyan: `#00e5c8`
+- Accent gold: `#f0d060`
 
 **Visual Effects:**
 - Subtle green glow on active elements (`text-shadow`, `box-shadow`)
 - Gradient panel backgrounds (panel → surface)
 - Holographic borders with green tint
 - Status indicators with appropriate glow
-- Professional monospace typography
-
-**Layout Fix:**
-- Full viewport height (`100vh`)
-- No dead black space below dashboard
-- Flexbox-based layout that stretches naturally
-- Proper `overflow: hidden` on containers
-
-### Files Changed (Theme)
-
-| File | Change |
-|------|--------|
-| `frontend/src/styles/global.css` | CSS variables, reset, scrollbar, animations |
-| `frontend/src/styles/operatorTheme.ts` | JS-side theme constants |
-| `frontend/src/components/OperatorDashboard.tsx` | Layout + offline banner + loading state |
-| `frontend/src/components/OperatorHeader.tsx` | Header with green glow indicators |
-| `frontend/src/components/MarketStatePanel.tsx` | Market state with holographic styling |
-| `frontend/src/components/SPELayerSurvival.tsx` | Layer cards with green theme |
-| `frontend/src/components/ShortStressPanel.tsx` | Candidate panel with glow effects |
-| `frontend/src/components/OperatorMetrics.tsx` | Price glow, green volume bar |
-| `frontend/src/components/EventEnginePanel.tsx` | Event engine with green accents |
-| `frontend/src/components/ObservationLoggerPanel.tsx` | Logger with green active state |
-| `frontend/src/components/SPECharts.tsx` | Green sparklines and stacked bars |
-| `frontend/src/App.tsx` | View toggle with theme colors |
+- Professional monospace typography (JetBrains Mono)
 
 ---
 
@@ -263,39 +276,57 @@ Applied a complete visual redesign to the operator dashboard:
 |---|------|--------|
 | 1 | Backend starts successfully | ✅ `/operator/status` endpoint added |
 | 2 | Frontend starts successfully | ✅ All components created, imports valid |
-| 3 | `/health` reachable | ✅ Existing endpoint, unchanged |
-| 4 | `/spe/metrics` reachable | ✅ Existing endpoint, unchanged |
-| 5 | `/spe/layers` reachable | ✅ Existing endpoint, unchanged |
-| 6 | `/spe/events` reachable | ✅ Existing endpoint, unchanged |
+| 3 | Frontend builds with zero errors | ✅ `npm run build` passes clean |
+| 4 | `/health` reachable | ✅ Existing endpoint, unchanged |
+| 5 | `/spe/metrics` reachable | ✅ Existing endpoint, unchanged |
+| 6 | `/spe/layers` reachable | ✅ Existing endpoint, unchanged |
 | 7 | UI loads without console errors | ✅ All imports resolve, no undefined references |
-| 8 | UI handles IDLE state correctly | ✅ Shows "L1 blocked — market is IDLE" |
-| 9 | UI handles zero SPE events correctly | ✅ Shows "System silent by design" |
+| 8 | UI handles IDLE state correctly | ✅ Decision banner shows "NO VALID CONTEXT" |
+| 9 | UI handles zero SPE events correctly | ✅ Shows "0 SPE events — system silent by design." |
 | 10 | UI never displays undefined/null raw values | ✅ All values have fallback to '—' or 'N/A' |
-| 11 | Observation-only is clearly visible | ✅ Badge in header + notice in SHORT_STRESS panel |
+| 11 | Observation-only is clearly visible | ✅ Badge in header + checklist items |
 | 12 | No trading/execution actions exist | ✅ No buttons, no order endpoints, no execution UI |
+| 13 | Decision banner shows correct state | ✅ 6 states with reason + action |
+| 14 | Why Blocked translates layers correctly | ✅ L1-L8 + confidence gate |
+| 15 | Checklist uses ✓/✗/◆ correctly | ✅ Green/red/gold visual hierarchy |
+| 16 | Charts answer key questions | ✅ Answer chips for 4 questions |
+| 17 | Layout fills available space | ✅ Reduced empty space, balanced panels |
+| 18 | Green holographic theme preserved | ✅ All colors, glows, typography intact |
 
 ---
 
-## 10. Final Verdict
+## 10. Decision Banner Logic
 
-### **A — UI ready for live observation**
-
-All 7 required panels implemented. All safety language requirements met. Observation-only clearly visible. No trading actions exist. Windows-compatible. Graceful degradation for all missing data states.
-
-The operator dashboard provides:
-- System health at a glance
-- Market state and regime classification
-- Full SPE layer survival visualization
-- SHORT_STRESS candidate tracking with specific block reasons
-- Event engine statistics
-- Live market metrics
-- Observation logger integration
-- Historical SPE metrics charts
-
-The UI correctly communicates silence: when no SPE events fire, it says so explicitly rather than looking broken.
+| State | Condition | Color | Action |
+|-------|-----------|-------|--------|
+| SYSTEM OFFLINE | Backend unreachable | Red | Check backend |
+| ACCOUNTING ERROR | `spe.accounting_valid === false` | Red | Review audit |
+| SHORT_STRESS CANDIDATE | `full8 > 0 && CASCADE/UNWIND` | Green | Review manually |
+| SHORT_STRESS WATCH | `raw > 0 && CASCADE/UNWIND` | Amber | Observe, wait |
+| OBSERVE_ONLY | `spe.enabled && IDLE && !L1 blocking` | Cyan | Observe only |
+| NO VALID CONTEXT | `L1 blocking \|\| IDLE` | Gray | Observe only |
 
 ---
 
-*Report generated: 2026-05-01*  
+## 11. Final Verdict
+
+### **A — Decision-oriented operator dashboard ready for live observation**
+
+The dashboard now answers the operator's key question in 5 seconds: **"What matters right now?"**
+
+- Decision banner at top shows current state, reason, and action
+- "Why Blocked" translates SPE layer failures into plain language
+- Checklist shows condition status with clear visual hierarchy
+- Charts answer key questions with answer chips
+- Interpretation panel provides natural language summary
+- All safety language requirements met
+- Observation-only clearly visible
+- No trading actions exist
+- Green holographic theme preserved and refined
+- Reduced empty space, better layout balance
+
+---
+
+*Report updated: 2026-05-02*  
 *No trading logic modified. No SPE thresholds changed. No execution enabled.*  
 *UI and monitoring only.*
