@@ -461,6 +461,154 @@ async def spe_metrics():
         return {"status": "no_data"}
 
 
+@app.get("/operator/status")
+async def operator_status():
+    """
+    Read-only operator dashboard endpoint.
+    Combines health, SPE metrics, and observation logger status.
+    No execution. No mutation. Purely informational.
+    """
+    import glob as _glob
+
+    result = {
+        "timestamp": time.time(),
+        "backend": {
+            "status": "ok",
+            "source": "hyperliquid",
+            "uptime": time.time() - engine._session_start,
+            "trade_count": engine.flow.trade_count,
+            "candles_loaded": len(_candle_cache),
+            "clients": len(connected_clients),
+        },
+        "market": {
+            "last_price": engine.flow.last_price,
+            "vwap": engine.flow.vwap,
+            "session_high": engine.flow.session_high,
+            "session_low": engine.flow.session_low if engine.flow.session_low != float("inf") else 0,
+            "delta": engine.flow.delta,
+            "cum_delta": engine.flow.cum_delta,
+            "taker_buy_vol": engine.flow.taker_buy_vol,
+            "taker_sell_vol": engine.flow.taker_sell_vol,
+            "trade_frequency": engine.flow.trade_frequency,
+            "imbalance": engine.flow.imbalance,
+        },
+        "event_engine": {
+            "enabled": event_mgr is not None,
+            "status": "active" if event_mgr is not None else "disabled",
+        },
+        "spe": {
+            "enabled": False,
+            "observation_only": True,
+            "current_state": "IDLE",
+            "raw_evaluations": 0,
+            "full_8_layer_passes": 0,
+            "emitted_events": 0,
+            "accounting_valid": True,
+            "accounting_errors": [],
+            "layer_counts": {},
+        },
+        "observation_logger": {
+            "detected": False,
+            "health_file": None,
+            "metrics_file": None,
+            "events_file": None,
+            "summary_file": None,
+            "last_health_ts": None,
+            "last_metrics_ts": None,
+            "last_event_ts": None,
+            "unique_events": 0,
+            "accounting_violations": 0,
+            "observation_only_violations": 0,
+        },
+    }
+
+    # Event engine stats
+    if event_mgr is not None:
+        try:
+            stats = event_mgr.get_event_stats()
+            result["event_engine"]["total"] = stats.get("total", 0)
+            result["event_engine"]["fired"] = stats.get("fired", 0)
+            result["event_engine"]["deduped"] = stats.get("deduped", 0)
+            result["event_engine"]["pending_outcomes"] = stats.get("pending_outcomes", 0)
+            result["event_engine"]["watchlisted"] = stats.get("watchlisted", 0)
+            result["event_engine"]["blacklisted"] = stats.get("blacklisted", 0)
+        except Exception:
+            pass
+
+        # SPE details
+        if event_mgr.spe is not None:
+            try:
+                spe_stats = event_mgr.spe.get_stats()
+                spe_layer = event_mgr.get_spe_layer_stats()
+                result["spe"]["enabled"] = True
+                result["spe"]["observation_only"] = event_mgr.spe_observation_only
+                result["spe"]["current_state"] = spe_stats.get("state", "IDLE")
+                result["spe"]["raw_evaluations"] = spe_layer.get("raw_evaluations", 0)
+                result["spe"]["full_8_layer_passes"] = spe_layer.get("full_8_layer_passes", 0)
+                result["spe"]["emitted_events"] = spe_layer.get("emitted_events", 0)
+                result["spe"]["accounting_valid"] = spe_layer.get("accounting_valid", True)
+                result["spe"]["accounting_errors"] = spe_layer.get("accounting_errors", [])
+                result["spe"]["layer_counts"] = spe_layer.get("layer_pass_fail", {})
+            except Exception:
+                pass
+
+    # Observation logger status (check if files exist)
+    obs_dir = os.path.join(os.path.dirname(__file__), "..", "data", "observation")
+    obs_files = {
+        "health_file": os.path.join(obs_dir, "short_stress_health.jsonl"),
+        "metrics_file": os.path.join(obs_dir, "short_stress_metrics.jsonl"),
+        "events_file": os.path.join(obs_dir, "short_stress_events.jsonl"),
+        "summary_file": os.path.join(obs_dir, "SHORT_STRESS_OBSERVATION_SESSION_SUMMARY.md"),
+    }
+
+    detected = False
+    for key, fpath in obs_files.items():
+        if os.path.exists(fpath):
+            result["observation_logger"][key] = {
+                "exists": True,
+                "size": os.path.getsize(fpath),
+                "modified": os.path.getmtime(fpath),
+            }
+            detected = True
+        else:
+            result["observation_logger"][key] = {"exists": False}
+
+    result["observation_logger"]["detected"] = detected
+
+    # Read last lines from observation files for timestamps
+    for file_key, ts_key in [
+        ("health_file", "last_health_ts"),
+        ("metrics_file", "last_metrics_ts"),
+        ("events_file", "last_event_ts"),
+    ]:
+        fpath_info = result["observation_logger"][file_key]
+        if isinstance(fpath_info, dict) and fpath_info.get("exists"):
+            try:
+                with open(obs_files[file_key], "rb") as f:
+                    # Seek to end, read last line
+                    f.seek(0, 2)
+                    fsize = f.tell()
+                    if fsize > 0:
+                        f.seek(max(0, fsize - 2048))
+                        lines = f.read().decode("utf-8", errors="replace").strip().split("\n")
+                        if lines:
+                            last = json.loads(lines[-1])
+                            result["observation_logger"][ts_key] = last.get("poll_ts") or last.get("log_ts")
+            except Exception:
+                pass
+
+    # Count unique events in observation events file
+    evt_fpath = obs_files["events_file"]
+    if os.path.exists(evt_fpath):
+        try:
+            with open(evt_fpath, "r", encoding="utf-8") as f:
+                result["observation_logger"]["unique_events"] = sum(1 for _ in f)
+        except Exception:
+            pass
+
+    return result
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)

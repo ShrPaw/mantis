@@ -1,5 +1,7 @@
 // MANTIS Dashboard — Main Application Layout
+// Two views: Microstructure (original) and Operator (SPE monitoring)
 import './styles/global.css';
+import { useState } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useStore } from './store';
 import { StatusBar } from './components/StatusBar';
@@ -13,12 +15,20 @@ import { MicroPanel } from './components/MicroPanel';
 import { SessionContext } from './components/SessionContext';
 import { NewsPanel } from './components/NewsPanel';
 import { SPEPanel } from './components/SPEPanel';
+import { OperatorDashboard } from './components/OperatorDashboard';
+
+type ViewMode = 'micro' | 'operator';
 
 export default function App() {
   useWebSocket();
+  const [view, setView] = useState<ViewMode>('operator');
 
   const flow = useStore(s => s.flow);
   const connected = useStore(s => s.connected);
+
+  if (view === 'operator') {
+    return <OperatorDashboard />;
+  }
 
   return (
     <div style={styles.container}>
@@ -30,7 +40,10 @@ export default function App() {
           <span style={styles.subtitle}>BTC MICROSTRUCTURE</span>
           <span style={styles.source}>HYPERLIQUID</span>
         </div>
-        <StatusBar connected={connected} flow={flow} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <ViewToggle current={view} onToggle={setView} />
+          <StatusBar connected={connected} flow={flow} />
+        </div>
       </header>
 
       {/* Main Content Area */}
@@ -74,6 +87,51 @@ export default function App() {
     </div>
   );
 }
+
+// View toggle button
+const ViewToggle: React.FC<{ current: ViewMode; onToggle: (v: ViewMode) => void }> = ({ current, onToggle }) => (
+  <div style={{
+    display: 'flex',
+    borderRadius: 4,
+    overflow: 'hidden',
+    border: '1px solid #1a1a2e',
+  }}>
+    <button
+      onClick={() => onToggle('operator')}
+      style={{
+        background: current === 'operator' ? '#f0b90b18' : 'transparent',
+        color: current === 'operator' ? '#f0b90b' : '#555',
+        border: 'none',
+        padding: '3px 10px',
+        fontSize: 9,
+        fontWeight: 700,
+        fontFamily: "'JetBrains Mono', monospace",
+        letterSpacing: 1,
+        cursor: 'pointer',
+        borderBottom: current === 'operator' ? '2px solid #f0b90b' : '2px solid transparent',
+      }}
+    >
+      OPERATOR
+    </button>
+    <button
+      onClick={() => onToggle('micro')}
+      style={{
+        background: current === 'micro' ? '#f0b90b18' : 'transparent',
+        color: current === 'micro' ? '#f0b90b' : '#555',
+        border: 'none',
+        padding: '3px 10px',
+        fontSize: 9,
+        fontWeight: 700,
+        fontFamily: "'JetBrains Mono', monospace",
+        letterSpacing: 1,
+        cursor: 'pointer',
+        borderBottom: current === 'micro' ? '2px solid #f0b90b' : '2px solid transparent',
+      }}
+    >
+      MICROSTRUCTURE
+    </button>
+  </div>
+);
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
@@ -124,7 +182,6 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #1a1a2e',
     borderRadius: 3,
   },
-  // 4-column horizontal layout
   main: {
     flex: 1,
     display: 'flex',
