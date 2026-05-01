@@ -357,20 +357,116 @@ When low volume + IDLE:
 
 ---
 
-## 12. Final Verdict
+## 12. Visual Cockpit Redesign (2026-05-02)
 
-### **A — Decision-oriented operator dashboard ready for live observation**
+### Design Philosophy
+The dashboard has been restructured from a panel-driven grid to a chart-centric visual cockpit. The market itself is now the main canvas. MANTIS overlays on top of the market, not the other way around.
 
-The dashboard now answers the operator's key questions in 5 seconds:
+### New Layout Structure
 
-1. **What is the market condition?** → Market State panel + Decision Banner
-2. **Is there valid context?** → Decision Banner (NO VALID CONTEXT / OBSERVE ONLY / etc.)
-3. **Why is SPE blocked?** → Why Blocked panel (plain language per layer)
-4. **Is SHORT_STRESS active or inactive?** → Checklist readiness status (INACTIVE/WATCH/CANDIDATE)
-5. **What should I do operationally?** → "What to do" box + Decision Banner action
-6. **What should I wait for?** → Why Blocked detail + Interpretation sentence
+```
+┌─────────────────────────────────────────────────────────┐
+│ Simulation Status Bar (22px)                             │
+├──────────────────────────────────┬──────────────────────┤
+│                                  │ Decision Banner      │
+│                                  │ Interpretation       │
+│   Main Price Chart (candlestick) │ SHORT_STRESS Checklist│
+│   + VWAP + Session H/L           │ Why Blocked          │
+│   + Event markers                │ Simulation Mode      │
+│   + Large trade markers          │                      │
+│                                  │                      │
+├──────────┬───────────┬───────────┼──────────────────────┤
+│ Event    │ Pressure  │ Pressure  │ SPE Compact          │
+│ Tape     │ Bubbles   │ Heatmap   │ Diagnostics          │
+└──────────┴───────────┴───────────┴──────────────────────┘
+```
 
-All safety language requirements met. Observation-only clearly visible. No trading actions exist. Green holographic theme preserved. Reduced empty space, better layout balance.
+### New Components Created
+
+| Component | Purpose |
+|-----------|---------|
+| `MainPriceChart.tsx` | Central candlestick chart with VWAP, session H/L, event markers, large trade markers, SPE state badge |
+| `DecisionSidebar.tsx` | Right column: Decision Banner + Interpretation + Checklist + Why Blocked + simulation mode footer |
+| `EventTape.tsx` | Scrolling event stream with timestamp, type, confidence, color-coded severity, SPE state strip |
+| `PressureBubbleMap.tsx` | Canvas bubble visualization for trade bursts and event pressure (labeled as proxy) |
+| `PressureHeatmap.tsx` | 4-row pressure strip: imbalance, frequency, delta, spread over time (labeled as proxy) |
+| `CompactDiagnostics.tsx` | Compressed SPE layer strip + mini sparklines for evals/emitted |
+| `SimulationStatusBar.tsx` | Top bar: LIVE OBSERVATION + PAPER SIMULATION + EXECUTION DISABLED + system metrics |
+
+### Chart Overlays
+
+The main price chart now includes:
+- **Candlestick series** — 1m candles, green/red, live updating from flow data
+- **VWAP line** — dashed gold, computed from candle volume
+- **Session High line** — subtle green horizontal
+- **Session Low line** — subtle red horizontal
+- **Large trade markers** — arrows sized by quantity (0.3+ BTC)
+- **Event engine markers** — color-coded by type (absorption=cyan, sweep=red, exhaustion=amber, etc.)
+- **SPE state markers** — CASCADE/UNWIND as large circle markers
+- **Price overlay** — current price, change, change%
+- **Meta chips** — H, L, VWAP, VOL in top bar
+- **Legend** — Bull, Bear, VWAP, Events
+
+### Bottom Row Visual Modules
+
+**Event Tape:**
+- Scrolling list of events from event engine + SPE
+- Timestamp, icon, type, side, confidence, source
+- SPE state strip at top (IDLE/CASCADE/UNWIND + candidate count)
+- "0 SPE events — system silent by design" when empty
+
+**Pressure Bubbles (proxy):**
+- Canvas-animated bubbles from large trades and events
+- Bubble size = trade size or event strength
+- Color = direction (green=buy, red=sell) or event type
+- Fade over time, delta bar at bottom
+- Honestly labeled: "proxy · trade bursts & event pressure"
+
+**Pressure Heatmap (proxy):**
+- 4-row horizontal heat strip over time
+- Rows: Imbalance, Frequency, Delta, Spread
+- Current values displayed on right
+- Honestly labeled: "proxy · imbalance/frequency/delta/spread over time"
+
+**Compact Diagnostics:**
+- 9-layer strip (L1-L8 + CG) — color-coded pass/fail/not-evaluated
+- Mini sparklines for evaluations and emitted events
+- Critical accounting warning when invalid
+- "0 SPE events — system silent by design" when empty
+
+### Live Simulation Mode
+
+Always visible in two locations:
+1. **SimulationStatusBar** (top): LIVE OBSERVATION · PAPER SIMULATION · EXECUTION DISABLED
+2. **DecisionSidebar** (bottom): Same three indicators in gold
+
+### Space Usage Improvements
+
+- Chart dominates the center (flex: 1, fills available space)
+- Right sidebar is 320px fixed width — decision-focused
+- Bottom row is 180px fixed height — 4 equal panels
+- No floating isolated panels
+- No giant dead black areas
+- All panels fill their allocated space
+- SimulationStatusBar is 22px (compact)
+
+---
+
+## 13. Final Verdict
+
+### **A — Visual operator cockpit ready for live observation**
+
+The dashboard is now a chart-centric monitoring cockpit:
+
+1. **Chart is the center** — candlestick with VWAP, session H/L, event markers, large trade markers
+2. **Decision sidebar** — right column with banner, interpretation, checklist, why blocked
+3. **Bottom flow** — event tape, pressure bubbles, pressure heatmap, compact diagnostics
+4. **Simulation mode** — always visible: LIVE OBSERVATION, PAPER SIMULATION, EXECUTION DISABLED
+5. **Honest labeling** — proxy data labeled as proxy, no fake liquidations
+6. **Space efficient** — no dead areas, all panels fill viewport
+7. **Green holographic** — preserved theme with improved hierarchy
+
+All safety language requirements met. No trading actions exist. No backend logic changed.
 
 ---
 
