@@ -207,7 +207,57 @@ The **OPERATOR** view loads by default. Toggle to **MICROSTRUCTURE** for the ori
 
 ---
 
-## 8. Testing Checklist
+## 8. Theme Redesign (2026-05-01)
+
+### Visual Theme: Green Holographic / Cyber Terminal
+
+Applied a complete visual redesign to the operator dashboard:
+
+**Color System:**
+- Background: `#05070b` (near-black / deep blue-black)
+- Panel background: `#0d1520` (elevated dark surface)
+- Primary accent: `#39ff88` (neon green)
+- Holographic green: `#00ffa6` (cyan-green mix)
+- Success: `#39ff88` (bright green)
+- Warning: `#ffcc66` (amber)
+- Danger: `#ff5f5f` (red)
+- Text main: `#d9ffe9` (light green-white)
+- Text dim: `#5a8a70` (gray-green)
+- Borders: `#143126` (dark green)
+
+**Visual Effects:**
+- Subtle green glow on active elements (`text-shadow`, `box-shadow`)
+- Gradient panel backgrounds (panel → surface)
+- Holographic borders with green tint
+- Status indicators with appropriate glow
+- Professional monospace typography
+
+**Layout Fix:**
+- Full viewport height (`100vh`)
+- No dead black space below dashboard
+- Flexbox-based layout that stretches naturally
+- Proper `overflow: hidden` on containers
+
+### Files Changed (Theme)
+
+| File | Change |
+|------|--------|
+| `frontend/src/styles/global.css` | CSS variables, reset, scrollbar, animations |
+| `frontend/src/styles/operatorTheme.ts` | JS-side theme constants |
+| `frontend/src/components/OperatorDashboard.tsx` | Layout + offline banner + loading state |
+| `frontend/src/components/OperatorHeader.tsx` | Header with green glow indicators |
+| `frontend/src/components/MarketStatePanel.tsx` | Market state with holographic styling |
+| `frontend/src/components/SPELayerSurvival.tsx` | Layer cards with green theme |
+| `frontend/src/components/ShortStressPanel.tsx` | Candidate panel with glow effects |
+| `frontend/src/components/OperatorMetrics.tsx` | Price glow, green volume bar |
+| `frontend/src/components/EventEnginePanel.tsx` | Event engine with green accents |
+| `frontend/src/components/ObservationLoggerPanel.tsx` | Logger with green active state |
+| `frontend/src/components/SPECharts.tsx` | Green sparklines and stacked bars |
+| `frontend/src/App.tsx` | View toggle with theme colors |
+
+---
+
+## 9. Testing Checklist
 
 | # | Test | Status |
 |---|------|--------|
@@ -226,7 +276,7 @@ The **OPERATOR** view loads by default. Toggle to **MICROSTRUCTURE** for the ori
 
 ---
 
-## 9. Final Verdict
+## 10. Final Verdict
 
 ### **A — UI ready for live observation**
 

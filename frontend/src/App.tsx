@@ -17,6 +17,8 @@ import { NewsPanel } from './components/NewsPanel';
 import { SPEPanel } from './components/SPEPanel';
 import { OperatorDashboard } from './components/OperatorDashboard';
 
+import { T } from './styles/operatorTheme';
+
 type ViewMode = 'micro' | 'operator';
 
 export default function App() {
@@ -90,25 +92,21 @@ export default function App() {
 
 // View toggle button
 const ViewToggle: React.FC<{ current: ViewMode; onToggle: (v: ViewMode) => void }> = ({ current, onToggle }) => (
-  <div style={{
-    display: 'flex',
-    borderRadius: 4,
-    overflow: 'hidden',
-    border: '1px solid #1a1a2e',
-  }}>
+  <div style={{ display: 'flex', borderRadius: 3, overflow: 'hidden', border: `1px solid ${T.border.mid}` }}>
     <button
       onClick={() => onToggle('operator')}
       style={{
-        background: current === 'operator' ? '#f0b90b18' : 'transparent',
-        color: current === 'operator' ? '#f0b90b' : '#555',
+        background: current === 'operator' ? T.green.glow : 'transparent',
+        color: current === 'operator' ? T.green.primary : T.text.muted,
         border: 'none',
         padding: '3px 10px',
         fontSize: 9,
         fontWeight: 700,
-        fontFamily: "'JetBrains Mono', monospace",
+        fontFamily: T.font.mono,
         letterSpacing: 1,
         cursor: 'pointer',
-        borderBottom: current === 'operator' ? '2px solid #f0b90b' : '2px solid transparent',
+        borderBottom: current === 'operator' ? `2px solid ${T.green.primary}` : '2px solid transparent',
+        textShadow: current === 'operator' ? `0 0 8px ${T.green.glow}` : 'none',
       }}
     >
       OPERATOR
@@ -116,16 +114,17 @@ const ViewToggle: React.FC<{ current: ViewMode; onToggle: (v: ViewMode) => void 
     <button
       onClick={() => onToggle('micro')}
       style={{
-        background: current === 'micro' ? '#f0b90b18' : 'transparent',
-        color: current === 'micro' ? '#f0b90b' : '#555',
+        background: current === 'micro' ? T.green.glow : 'transparent',
+        color: current === 'micro' ? T.green.primary : T.text.muted,
         border: 'none',
         padding: '3px 10px',
         fontSize: 9,
         fontWeight: 700,
-        fontFamily: "'JetBrains Mono', monospace",
+        fontFamily: T.font.mono,
         letterSpacing: 1,
         cursor: 'pointer',
-        borderBottom: current === 'micro' ? '2px solid #f0b90b' : '2px solid transparent',
+        borderBottom: current === 'micro' ? `2px solid ${T.green.primary}` : '2px solid transparent',
+        textShadow: current === 'micro' ? `0 0 8px ${T.green.glow}` : 'none',
       }}
     >
       MICROSTRUCTURE

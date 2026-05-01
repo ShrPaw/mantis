@@ -1,8 +1,7 @@
-// MANTIS Operator Dashboard — Header Bar
+// MANTIS Operator Dashboard — Header (holographic green theme)
 import React from 'react';
 import { useOperatorStore } from '../store/operatorStore';
-
-type ViewMode = 'micro' | 'operator';
+import { T } from '../styles/operatorTheme';
 
 function formatUptime(s: number): string {
   if (s < 60) return `${Math.floor(s)}s`;
@@ -16,7 +15,6 @@ export const OperatorHeader: React.FC = () => {
   const status = useOperatorStore(s => s.status);
   const connected = useOperatorStore(s => s.connected);
   const error = useOperatorStore(s => s.error);
-
   const backend = status?.backend;
   const spe = status?.spe;
   const now = new Date().toLocaleTimeString('en-US', { hour12: false });
@@ -37,9 +35,9 @@ export const OperatorHeader: React.FC = () => {
         <Divider />
         <Metric label="TRADES" value={backend?.trade_count?.toLocaleString() ?? '—'} />
         <Divider />
-        <Metric label="ENGINE" value={status?.event_engine?.status?.toUpperCase() ?? '—'} color={status?.event_engine?.enabled ? '#26a69a' : '#ef5350'} />
+        <Metric label="ENGINE" value={status?.event_engine?.status?.toUpperCase() ?? '—'} color={status?.event_engine?.enabled ? T.green.primary : T.status.danger} />
         <Divider />
-        <Metric label="SPE" value={spe?.enabled ? 'ACTIVE' : 'OFF'} color={spe?.enabled ? '#f0b90b' : '#666'} />
+        <Metric label="SPE" value={spe?.enabled ? 'ACTIVE' : 'OFF'} color={spe?.enabled ? T.green.primary : T.text.muted} />
         <Divider />
         <span style={S.obsBadge}>⚠ OBSERVATION-ONLY</span>
       </div>
@@ -47,7 +45,7 @@ export const OperatorHeader: React.FC = () => {
       <div style={S.right}>
         <ViewToggle />
         <span style={S.time}>{now}</span>
-        {error && <span style={S.err}>ERR: {error}</span>}
+        {error && <span style={S.err}>{error}</span>}
       </div>
     </header>
   );
@@ -55,36 +53,41 @@ export const OperatorHeader: React.FC = () => {
 
 const StatusDot: React.FC<{ ok: boolean; label: string }> = ({ ok, label }) => (
   <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-    <span style={{ color: ok ? '#26a69a' : '#ef5350', fontSize: 10 }}>●</span>
-    <span style={{ color: ok ? '#26a69a' : '#ef5350', fontWeight: 600 }}>{label}</span>
+    <span style={{
+      color: ok ? T.green.primary : T.status.danger,
+      fontSize: 10,
+      textShadow: ok ? `0 0 6px ${T.green.glowStrong}` : 'none',
+    }}>●</span>
+    <span style={{ color: ok ? T.green.primary : T.status.danger, fontWeight: 700, letterSpacing: 1, fontSize: 10 }}>{label}</span>
   </span>
 );
 
 const Metric: React.FC<{ label: string; value: string; color?: string }> = ({ label, value, color }) => (
   <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-    <span style={{ color: '#555', fontSize: 9, letterSpacing: 1 }}>{label}</span>
-    <span style={{ color: color || '#ccc', fontWeight: 600, fontSize: 11 }}>{value}</span>
+    <span style={{ color: T.text.muted, fontSize: 8, letterSpacing: 1 }}>{label}</span>
+    <span style={{ color: color || T.text.main, fontWeight: 600, fontSize: 10 }}>{value}</span>
   </span>
 );
 
 const Divider = () => (
-  <span style={{ width: 1, height: 16, background: '#1a1a2e', margin: '0 4px' }} />
+  <span style={{ width: 1, height: 14, background: T.border.mid, margin: '0 2px' }} />
 );
 
 const ViewToggle: React.FC = () => (
-  <div style={{ display: 'flex', borderRadius: 3, overflow: 'hidden', border: '1px solid #1a1a2e' }}>
+  <div style={{ display: 'flex', borderRadius: 3, overflow: 'hidden', border: `1px solid ${T.border.mid}` }}>
     <span style={{
-      background: '#f0b90b18',
-      color: '#f0b90b',
+      background: T.green.glow,
+      color: T.green.primary,
       padding: '2px 8px',
       fontSize: 8,
       fontWeight: 700,
       letterSpacing: 1,
-      borderBottom: '2px solid #f0b90b',
+      borderBottom: `2px solid ${T.green.primary}`,
+      textShadow: `0 0 8px ${T.green.glow}`,
     }}>OPERATOR</span>
     <a href="/?view=micro" style={{
       background: 'transparent',
-      color: '#555',
+      color: T.text.muted,
       padding: '2px 8px',
       fontSize: 8,
       fontWeight: 700,
@@ -100,56 +103,56 @@ const S: Record<string, React.CSSProperties> = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '5px 16px',
-    background: '#0a0a12',
-    borderBottom: '1px solid #1a1a2e',
+    padding: '4px 14px',
+    background: 'linear-gradient(180deg, #0a1218 0%, #070e14 100%)',
+    borderBottom: `1px solid ${T.border.mid}`,
     flexShrink: 0,
-    height: 34,
+    height: 32,
     zIndex: 10,
+    boxShadow: `0 1px 8px rgba(0,0,0,0.3), inset 0 -1px 0 ${T.border.dim}`,
   },
-  left: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
+  left: { display: 'flex', alignItems: 'center', gap: 8 },
+  logo: {
+    fontSize: 14,
+    color: T.green.primary,
+    textShadow: `0 0 10px ${T.green.glowStrong}`,
   },
-  logo: { fontSize: 14, color: '#f0b90b' },
-  title: { fontSize: 13, fontWeight: 700, color: '#f0b90b', letterSpacing: 2 },
+  title: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: T.green.primary,
+    letterSpacing: 3,
+    textShadow: `0 0 12px ${T.green.glow}`,
+  },
   badge: {
-    fontSize: 8,
-    color: '#f0b90b',
+    fontSize: 7,
+    color: T.green.primary,
     letterSpacing: 2,
     padding: '1px 5px',
-    border: '1px solid #f0b90b40',
+    border: `1px solid ${T.border.bright}`,
     borderRadius: 3,
-    background: '#f0b90b10',
+    background: T.green.glow,
+    textShadow: `0 0 6px ${T.green.glow}`,
   },
   source: {
-    fontSize: 8,
-    color: '#333',
+    fontSize: 7,
+    color: T.text.muted,
     letterSpacing: 2,
     padding: '1px 5px',
-    border: '1px solid #1a1a2e',
+    border: `1px solid ${T.border.dim}`,
     borderRadius: 3,
   },
-  center: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-  },
+  center: { display: 'flex', alignItems: 'center', gap: 6 },
   obsBadge: {
-    fontSize: 9,
-    color: '#f0b90b',
+    fontSize: 8,
+    color: T.accent.gold,
     padding: '2px 6px',
-    border: '1px solid #f0b90b40',
+    border: `1px solid rgba(240, 208, 96, 0.25)`,
     borderRadius: 3,
-    background: '#f0b90b08',
+    background: 'rgba(240, 208, 96, 0.06)',
     letterSpacing: 1,
   },
-  right: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-  },
-  time: { color: '#555', fontSize: 10 },
-  err: { color: '#ef5350', fontSize: 9 },
+  right: { display: 'flex', alignItems: 'center', gap: 8 },
+  time: { color: T.text.muted, fontSize: 9 },
+  err: { color: T.status.danger, fontSize: 9 },
 };

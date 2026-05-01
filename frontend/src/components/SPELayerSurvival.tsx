@@ -1,93 +1,85 @@
-// MANTIS Operator Dashboard — SPE Layer Survival Panel
+// MANTIS Operator Dashboard — SPE Layer Survival (holographic theme)
 import React from 'react';
 import { useOperatorStore } from '../store/operatorStore';
+import { T } from '../styles/operatorTheme';
 
 const LAYER_ORDER = [
-  { key: 'L1_context_gate', name: 'L1 Context Gate', desc: 'CASCADE/UNWIND state gate' },
-  { key: 'L2_pressure', name: 'L2 Pressure', desc: 'Crowd positioning imbalance' },
-  { key: 'L3_displacement', name: 'L3 Displacement', desc: 'Forced move detection' },
-  { key: 'L4_sweep', name: 'L4 Sweep', desc: 'Structural sweep / CRT' },
-  { key: 'L5_trap', name: 'L5 Trap', desc: 'Trap confirmation' },
-  { key: 'L6_execution_filter', name: 'L6 Exec Filter', desc: 'Spread/depth quality gate' },
-  { key: 'L7_entry_zone', name: 'L7 Entry Zone', desc: 'Passive limit placement' },
-  { key: 'L8_exit_model', name: 'L8 Exit Model', desc: 'TP/SL levels' },
-  { key: 'confidence_gate', name: 'Confidence', desc: 'Min confidence threshold' },
+  { key: 'L1_context_gate', name: 'L1 Context', desc: 'CASCADE/UNWIND gate' },
+  { key: 'L2_pressure', name: 'L2 Pressure', desc: 'Crowd imbalance' },
+  { key: 'L3_displacement', name: 'L3 Displace', desc: 'Forced move' },
+  { key: 'L4_sweep', name: 'L4 Sweep', desc: 'Structural sweep' },
+  { key: 'L5_trap', name: 'L5 Trap', desc: 'Trap confirm' },
+  { key: 'L6_execution_filter', name: 'L6 Exec', desc: 'Quality gate' },
+  { key: 'L7_entry_zone', name: 'L7 Entry', desc: 'Limit placement' },
+  { key: 'L8_exit_model', name: 'L8 Exit', desc: 'TP/SL levels' },
+  { key: 'confidence_gate', name: 'Confidence', desc: 'Min threshold' },
 ];
 
-function getLayerStatus(counts: { pass: number; fail: number; not_evaluated: number }, raw: number): {
-  status: string;
-  color: string;
-  bgColor: string;
-} {
-  if (raw === 0) return { status: 'NO DATA', color: '#444', bgColor: '#111' };
-  const { pass, fail, not_evaluated } = counts;
-  if (pass > 0 && fail === 0) return { status: 'PASS', color: '#26a69a', bgColor: 'rgba(38,166,154,0.1)' };
-  if (fail > 0 && pass === 0) return { status: 'FAIL', color: '#ef5350', bgColor: 'rgba(239,83,80,0.1)' };
-  if (not_evaluated > 0 && pass === 0 && fail === 0) return { status: 'NOT EVALUATED', color: '#555', bgColor: '#111' };
-  if (pass > 0 && fail > 0) return { status: 'MIXED', color: '#ff9800', bgColor: 'rgba(255,152,0,0.1)' };
-  return { status: '—', color: '#444', bgColor: '#111' };
+function getLayerStyle(counts: { pass: number; fail: number; not_evaluated: number }, raw: number) {
+  if (raw === 0) return { status: 'NO DATA', color: T.text.muted, bg: T.bg.card };
+  const { pass, fail } = counts;
+  if (pass > 0 && fail === 0) return { status: 'PASS', color: T.green.primary, bg: 'rgba(57,255,136,0.06)' };
+  if (fail > 0 && pass === 0) return { status: 'FAIL', color: T.status.danger, bg: 'rgba(255,95,95,0.06)' };
+  if (pass === 0 && fail === 0) return { status: 'NOT EVAL', color: T.text.muted, bg: T.bg.card };
+  return { status: 'MIXED', color: T.status.warning, bg: 'rgba(255,204,102,0.06)' };
 }
 
 export const SPELayerSurvival: React.FC = () => {
   const status = useOperatorStore(s => s.status);
   const spe = status?.spe;
-  const layerCounts = spe?.layer_counts ?? {};
+  const lc = spe?.layer_counts ?? {};
   const raw = spe?.raw_evaluations ?? 0;
   const accountingValid = spe?.accounting_valid ?? true;
-  const accountingErrors = spe?.accounting_errors ?? [];
 
   return (
     <div style={S.panel}>
       <div style={S.header}>
         <span style={S.title}>SPE LAYER SURVIVAL</span>
-        <span style={S.subtitle}>
-          Raw evaluations: <span style={{ color: '#ccc' }}>{raw.toLocaleString()}</span>
+        <span style={S.stats}>
+          Evaluated: <span style={{ color: T.text.main }}>{raw.toLocaleString()}</span>
           {' · '}
-          Full 8-layer passes: <span style={{ color: spe?.full_8_layer_passes ? '#26a69a' : '#555' }}>{spe?.full_8_layer_passes ?? 0}</span>
+          Full 8L: <span style={{ color: spe?.full_8_layer_passes ? T.green.primary : T.text.muted }}>{spe?.full_8_layer_passes ?? 0}</span>
           {' · '}
-          Emitted: <span style={{ color: spe?.emitted_events ? '#f0b90b' : '#555' }}>{spe?.emitted_events ?? 0}</span>
+          Emitted: <span style={{ color: spe?.emitted_events ? T.green.primary : T.text.muted }}>{spe?.emitted_events ?? 0}</span>
         </span>
       </div>
 
       {!accountingValid && (
         <div style={S.criticalWarn}>
-          ⚠ ACCOUNTING INVARIANT VIOLATION: {accountingErrors.join('; ')}
+          ⚠ ACCOUNTING INVARIANT VIOLATION
         </div>
       )}
 
       <div style={S.layerGrid}>
         {LAYER_ORDER.map(layer => {
-          const counts = layerCounts[layer.key] ?? { pass: 0, fail: 0, not_evaluated: 0 };
-          const { status: layerStatus, color, bgColor } = getLayerStatus(counts, raw);
+          const counts = lc[layer.key] ?? { pass: 0, fail: 0, not_evaluated: 0 };
+          const { status: lStatus, color, bg } = getLayerStyle(counts, raw);
           const evaluated = counts.pass + counts.fail;
           const passRate = evaluated > 0 ? (counts.pass / evaluated * 100) : 0;
-          const invariant = counts.pass + counts.fail + counts.not_evaluated;
+          const inv = counts.pass + counts.fail + counts.not_evaluated;
 
           return (
-            <div key={layer.key} style={{ ...S.layerCard, background: bgColor, borderColor: color + '30' }}>
+            <div key={layer.key} style={{ ...S.layerCard, background: bg, borderColor: color + '25' }}>
               <div style={S.layerTop}>
-                <span style={{ ...S.layerName, color }}>{layer.name}</span>
-                <span style={{ ...S.layerStatus, color }}>{layerStatus}</span>
+                <span style={{ color, fontWeight: 700, fontSize: 9, textShadow: `0 0 6px ${color}30` }}>{layer.name}</span>
+                <span style={{ color, fontSize: 7, fontWeight: 700, letterSpacing: 1 }}>{lStatus}</span>
               </div>
-              <div style={S.layerDesc}>{layer.desc}</div>
+              <div style={{ color: T.text.muted, fontSize: 7, marginBottom: 3 }}>{layer.desc}</div>
               <div style={S.layerStats}>
-                <span style={{ color: '#26a69a' }}>{counts.pass}✓</span>
-                <span style={{ color: '#ef5350' }}>{counts.fail}✗</span>
-                <span style={{ color: '#555' }}>{counts.not_evaluated}⊘</span>
-                <span style={{ color: '#888', marginLeft: 'auto' }}>
-                  {evaluated > 0 ? `${passRate.toFixed(0)}%` : '—'}
-                </span>
+                <span style={{ color: T.green.primary }}>{counts.pass}✓</span>
+                <span style={{ color: T.status.danger }}>{counts.fail}✗</span>
+                <span style={{ color: T.text.muted }}>{counts.not_evaluated}⊘</span>
+                <span style={{ color: T.text.dim, marginLeft: 'auto' }}>{evaluated > 0 ? `${passRate.toFixed(0)}%` : '—'}</span>
               </div>
-              <div style={S.invariantBar}>
+              <div style={S.invBar}>
                 <div style={{
-                  ...S.invariantFill,
-                  width: raw > 0 ? `${(invariant / raw * 100)}%` : '0%',
-                  background: invariant === raw ? '#26a69a30' : '#ef535040',
+                  height: '100%', borderRadius: 1,
+                  width: raw > 0 ? `${(inv / raw * 100)}%` : '0%',
+                  background: inv === raw ? T.green.muted : 'rgba(255,95,95,0.3)',
+                  transition: 'width 0.3s',
                 }} />
               </div>
-              <div style={S.invariantLabel}>
-                {raw > 0 ? `${invariant}/${raw}` : '—'}
-              </div>
+              <div style={{ fontSize: 7, color: T.text.faint, textAlign: 'center', marginTop: 2 }}>{raw > 0 ? `${inv}/${raw}` : '—'}</div>
             </div>
           );
         })}
@@ -95,7 +87,7 @@ export const SPELayerSurvival: React.FC = () => {
 
       {raw === 0 && (
         <div style={S.emptyNotice}>
-          No SPE evaluations yet. Waiting for live trade data.
+          <span style={{ color: T.green.primary }}>◆</span> No SPE evaluations yet. Waiting for live trade data.
         </div>
       )}
     </div>
@@ -104,104 +96,38 @@ export const SPELayerSurvival: React.FC = () => {
 
 const S: Record<string, React.CSSProperties> = {
   panel: {
-    background: '#0c0c14',
-    border: '1px solid #1a1a2e',
+    background: `linear-gradient(180deg, ${T.bg.panel} 0%, ${T.bg.surface} 100%)`,
+    border: `1px solid ${T.border.mid}`,
     borderRadius: 6,
-    padding: '10px 12px',
+    padding: '8px 10px',
+    width: '100%',
+    boxShadow: `inset 0 1px 0 rgba(57,255,136,0.03)`,
   },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 10,
-    fontWeight: 700,
-    color: '#f0b90b',
-    letterSpacing: 2,
-  },
-  subtitle: {
-    fontSize: 9,
-    color: '#666',
-    fontFamily: "'JetBrains Mono', monospace",
-  },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  title: { fontSize: 9, fontWeight: 700, color: T.green.primary, letterSpacing: 2, textShadow: `0 0 8px ${T.green.glow}` },
+  stats: { fontSize: 8, color: T.text.dim },
   criticalWarn: {
-    padding: '6px 10px',
-    background: 'rgba(239, 83, 80, 0.12)',
-    border: '1px solid rgba(239, 83, 80, 0.4)',
+    padding: '5px 8px',
+    background: 'rgba(255,95,95,0.1)',
+    border: `1px solid rgba(255,95,95,0.35)`,
     borderRadius: 4,
-    color: '#ef5350',
-    fontSize: 10,
+    color: T.status.danger,
+    fontSize: 9,
     fontWeight: 700,
-    marginBottom: 8,
+    marginBottom: 6,
     letterSpacing: 1,
   },
-  layerGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(9, 1fr)',
-    gap: 4,
-  },
+  layerGrid: { display: 'grid', gridTemplateColumns: 'repeat(9, 1fr)', gap: 3 },
   layerCard: {
     border: '1px solid',
     borderRadius: 5,
-    padding: '6px 7px',
-    minHeight: 80,
+    padding: '5px 6px',
+    minHeight: 72,
     display: 'flex',
     flexDirection: 'column' as const,
   },
-  layerTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  layerName: {
-    fontSize: 9,
-    fontWeight: 700,
-    letterSpacing: 0.5,
-  },
-  layerStatus: {
-    fontSize: 7,
-    fontWeight: 700,
-    letterSpacing: 1,
-  },
-  layerDesc: {
-    fontSize: 7,
-    color: '#555',
-    marginBottom: 4,
-    lineHeight: 1.3,
-  },
-  layerStats: {
-    display: 'flex',
-    gap: 5,
-    fontSize: 9,
-    fontFamily: "'JetBrains Mono', monospace",
-    marginTop: 'auto',
-  },
-  invariantBar: {
-    height: 2,
-    background: '#1a1a2e',
-    borderRadius: 1,
-    marginTop: 4,
-    overflow: 'hidden',
-  },
-  invariantFill: {
-    height: '100%',
-    borderRadius: 1,
-    transition: 'width 0.3s ease',
-  },
-  invariantLabel: {
-    fontSize: 7,
-    color: '#444',
-    textAlign: 'center' as const,
-    marginTop: 2,
-  },
-  emptyNotice: {
-    textAlign: 'center' as const,
-    color: '#444',
-    fontSize: 11,
-    padding: 12,
-    fontStyle: 'italic',
-  },
+  layerTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 1 },
+  layerStats: { display: 'flex', gap: 4, fontSize: 8, marginTop: 'auto' },
+  invBar: { height: 2, background: T.border.dim, borderRadius: 1, marginTop: 3, overflow: 'hidden' },
+  emptyNotice: { textAlign: 'center', color: T.text.dim, fontSize: 10, padding: 10, fontStyle: 'italic' },
 };

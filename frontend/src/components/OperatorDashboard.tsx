@@ -1,4 +1,4 @@
-// MANTIS Operator Dashboard — Main Layout
+// MANTIS Operator Dashboard — Main Layout (holographic theme)
 import React from 'react';
 import { useOperatorPolling } from '../hooks/useOperatorPolling';
 import { useOperatorStore } from '../store/operatorStore';
@@ -25,50 +25,35 @@ export const OperatorDashboard: React.FC = () => {
       {!connected && (
         <div style={S.offlineBanner}>
           <span style={S.offlineDot}>●</span>
-          <span>BACKEND OFFLINE — {error || 'Cannot reach localhost:8000'}</span>
+          <span style={S.offlineText}>BACKEND OFFLINE</span>
+          <span style={S.offlineReason}>{error || 'Cannot reach localhost:8000'}</span>
           <span style={S.offlineHint}>Start MANTIS: cd backend && python main.py</span>
         </div>
       )}
 
       {connected && status && (
         <div style={S.grid}>
-          {/* Row 1: Market State + Short Stress */}
           <div style={S.row}>
-            <div style={S.cellThird}>
-              <MarketStatePanel />
-            </div>
-            <div style={S.cellThird}>
-              <ShortStressPanel />
-            </div>
-            <div style={S.cellThird}>
-              <OperatorMetrics />
-            </div>
+            <div style={S.cellThird}><MarketStatePanel /></div>
+            <div style={S.cellThird}><ShortStressPanel /></div>
+            <div style={S.cellThird}><OperatorMetrics /></div>
           </div>
-
-          {/* Row 2: Layer Survival (full width) */}
           <div style={S.row}>
-            <div style={S.cellFull}>
-              <SPELayerSurvival />
-            </div>
+            <div style={S.cellFull}><SPELayerSurvival /></div>
           </div>
-
-          {/* Row 3: Charts + Event Engine + Observation Logger */}
           <div style={S.row}>
-            <div style={S.cellHalf}>
-              <SPECharts />
-            </div>
-            <div style={S.cellQuarter}>
-              <EventEnginePanel />
-            </div>
-            <div style={S.cellQuarter}>
-              <ObservationLoggerPanel />
-            </div>
+            <div style={S.cellHalf}><SPECharts /></div>
+            <div style={S.cellQuarter}><EventEnginePanel /></div>
+            <div style={S.cellQuarter}><ObservationLoggerPanel /></div>
           </div>
         </div>
       )}
 
       {connected && !status && (
-        <div style={S.loading}>Loading operator data...</div>
+        <div style={S.loading}>
+          <span className="animate-pulse-glow" style={{ color: '#39ff88', fontSize: 18 }}>◆</span>
+          <span>Initializing operator data feed...</span>
+        </div>
       )}
     </div>
   );
@@ -80,69 +65,47 @@ const S: Record<string, React.CSSProperties> = {
     height: '100vh',
     display: 'flex',
     flexDirection: 'column',
-    background: '#08080c',
+    background: '#05070b',
     overflow: 'hidden',
     fontFamily: "'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace",
   },
   offlineBanner: {
     display: 'flex',
     alignItems: 'center',
-    gap: 12,
-    padding: '10px 20px',
-    background: 'rgba(239, 83, 80, 0.08)',
-    borderBottom: '1px solid rgba(239, 83, 80, 0.3)',
-    color: '#ef5350',
-    fontSize: 12,
+    gap: 10,
+    padding: '8px 16px',
+    background: 'rgba(255, 95, 95, 0.06)',
+    borderBottom: '1px solid rgba(255, 95, 95, 0.25)',
+    fontSize: 11,
     fontFamily: "'JetBrains Mono', monospace",
   },
-  offlineDot: {
-    color: '#ef5350',
-    fontSize: 14,
-    animation: 'pulse 2s infinite',
-  },
-  offlineHint: {
-    marginLeft: 'auto',
-    color: '#666',
-    fontSize: 11,
-  },
+  offlineDot: { color: '#ff5f5f', fontSize: 12, animation: 'pulse-glow 2s infinite' },
+  offlineText: { color: '#ff5f5f', fontWeight: 700, letterSpacing: 1 },
+  offlineReason: { color: '#8a6a6a', fontSize: 10 },
+  offlineHint: { marginLeft: 'auto', color: '#5a8a70', fontSize: 10 },
   grid: {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    gap: 1,
-    background: '#111',
+    gap: 2,
+    padding: '4px',
     overflow: 'auto',
-    padding: '6px',
-  },
-  row: {
-    display: 'flex',
-    gap: 1,
     minHeight: 0,
   },
-  cellThird: {
-    flex: 1,
-    minWidth: 0,
-  },
-  cellHalf: {
-    flex: 2,
-    minWidth: 0,
-  },
-  cellQuarter: {
-    flex: 1,
-    minWidth: 0,
-  },
-  cellFull: {
-    flex: 1,
-    minWidth: 0,
-  },
+  row: { display: 'flex', gap: 2, minHeight: 0 },
+  cellThird: { flex: 1, minWidth: 0, display: 'flex' },
+  cellHalf: { flex: 2, minWidth: 0, display: 'flex' },
+  cellQuarter: { flex: 1, minWidth: 0, display: 'flex' },
+  cellFull: { flex: 1, minWidth: 0, display: 'flex' },
   loading: {
     flex: 1,
     display: 'flex',
+    flexDirection: 'column' as const,
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#555',
-    fontSize: 13,
-    fontFamily: "'JetBrains Mono', monospace",
+    gap: 10,
+    color: '#5a8a70',
+    fontSize: 12,
   },
 };
 

@@ -1,235 +1,134 @@
-// MANTIS Operator Dashboard — SPE Charts (Canvas-based mini charts)
-import React, { useRef, useEffect, useCallback } from 'react';
+// MANTIS Operator Dashboard — SPE Charts (holographic green theme)
+import React, { useRef, useEffect } from 'react';
 import { useOperatorStore } from '../store/operatorStore';
+import { T } from '../styles/operatorTheme';
 
-// Simple canvas sparkline
-function drawSparkline(
-  ctx: CanvasRenderingContext2D,
-  data: number[],
-  width: number,
-  height: number,
-  color: string,
-  fillColor?: string,
-) {
-  ctx.clearRect(0, 0, width, height);
+function drawSparkline(ctx: CanvasRenderingContext2D, data: number[], w: number, h: number, color: string, fill: string) {
+  ctx.clearRect(0, 0, w, h);
   if (data.length < 2) return;
-
   const max = Math.max(...data, 1);
   const min = Math.min(...data, 0);
   const range = max - min || 1;
-  const step = width / (data.length - 1);
+  const step = w / (data.length - 1);
 
   ctx.beginPath();
-  ctx.moveTo(0, height - ((data[0] - min) / range) * height);
-  for (let i = 1; i < data.length; i++) {
-    ctx.lineTo(i * step, height - ((data[i] - min) / range) * height);
-  }
+  ctx.moveTo(0, h - ((data[0] - min) / range) * h);
+  for (let i = 1; i < data.length; i++) ctx.lineTo(i * step, h - ((data[i] - min) / range) * h);
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  if (fillColor) {
-    ctx.lineTo(width, height);
-    ctx.lineTo(0, height);
-    ctx.closePath();
-    ctx.fillStyle = fillColor;
-    ctx.fill();
-  }
+  ctx.lineTo(w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
 }
 
-// Stacked bar chart for layer data
-function drawStackedBar(
-  ctx: CanvasRenderingContext2D,
-  passData: number[],
-  failData: number[],
-  neData: number[],
-  width: number,
-  height: number,
-) {
-  ctx.clearRect(0, 0, width, height);
-  if (passData.length < 1) return;
-
-  const barW = Math.max(2, (width / passData.length) - 1);
-
-  for (let i = 0; i < passData.length; i++) {
-    const total = passData[i] + failData[i] + neData[i];
+function drawStackedBar(ctx: CanvasRenderingContext2D, pass: number[], fail: number[], ne: number[], w: number, h: number) {
+  ctx.clearRect(0, 0, w, h);
+  if (pass.length < 1) return;
+  const barW = Math.max(2, (w / pass.length) - 1);
+  for (let i = 0; i < pass.length; i++) {
+    const total = pass[i] + fail[i] + ne[i];
     if (total === 0) continue;
-
     const x = i * (barW + 1);
-    let y = height;
-
-    // Pass (green)
-    const passH = (passData[i] / total) * height;
-    ctx.fillStyle = 'rgba(38, 166, 154, 0.7)';
-    ctx.fillRect(x, y - passH, barW, passH);
-    y -= passH;
-
-    // Fail (red)
-    const failH = (failData[i] / total) * height;
-    ctx.fillStyle = 'rgba(239, 83, 80, 0.7)';
-    ctx.fillRect(x, y - failH, barW, failH);
-    y -= failH;
-
-    // Not evaluated (gray)
-    const neH = (neData[i] / total) * height;
-    ctx.fillStyle = 'rgba(80, 80, 80, 0.5)';
-    ctx.fillRect(x, y - neH, barW, neH);
+    let y = h;
+    const ph = (pass[i] / total) * h;
+    ctx.fillStyle = 'rgba(57, 255, 136, 0.6)';
+    ctx.fillRect(x, y - ph, barW, ph);
+    y -= ph;
+    const fh = (fail[i] / total) * h;
+    ctx.fillStyle = 'rgba(255, 95, 95, 0.6)';
+    ctx.fillRect(x, y - fh, barW, fh);
+    y -= fh;
+    const nh = (ne[i] / total) * h;
+    ctx.fillStyle = 'rgba(58, 106, 82, 0.4)';
+    ctx.fillRect(x, y - nh, barW, nh);
   }
 }
 
-const MiniChart: React.FC<{
-  title: string;
-  data: number[];
-  color: string;
-  fillColor?: string;
-  suffix?: string;
-  height?: number;
-}> = ({ title, data, color, fillColor, suffix, height: h = 50 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
+const MiniChart: React.FC<{ title: string; data: number[]; color: string; fill: string; h?: number }> = ({ title, data, color, fill, h = 48 }) => {
+  const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const c = ref.current;
+    if (!c) return;
+    const ctx = c.getContext('2d');
     if (!ctx) return;
-
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    const r = c.getBoundingClientRect();
+    c.width = r.width * dpr;
+    c.height = r.height * dpr;
     ctx.scale(dpr, dpr);
-
-    drawSparkline(ctx, data, rect.width, rect.height, color, fillColor);
-  }, [data, color, fillColor]);
+    drawSparkline(ctx, data, r.width, r.height, color, fill);
+  }, [data, color, fill]);
 
   const latest = data.length > 0 ? data[data.length - 1] : 0;
-
   return (
-    <div style={{ ...miniS.container, height: h + 30 }}>
-      <div style={miniS.header}>
-        <span style={miniS.title}>{title}</span>
-        <span style={{ ...miniS.value, color }}>
-          {latest.toLocaleString()}{suffix || ''}
-        </span>
+    <div style={{ background: T.bg.card, border: `1px solid ${T.border.dim}`, borderRadius: 5, padding: '5px 7px', height: h + 28, display: 'flex', flexDirection: 'column' as const }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+        <span style={{ fontSize: 7, color: T.text.muted, letterSpacing: 1, textTransform: 'uppercase' as const }}>{title}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color, textShadow: `0 0 6px ${color}30` }}>{latest.toLocaleString()}</span>
       </div>
-      <canvas
-        ref={canvasRef}
-        style={{ width: '100%', height: `${h}px`, display: 'block' }}
-      />
+      <canvas ref={ref} style={{ width: '100%', height: `${h}px`, display: 'block' }} />
     </div>
   );
 };
 
-const miniS: Record<string, React.CSSProperties> = {
-  container: {
-    background: '#0a0a12',
-    border: '1px solid #1a1a2e',
-    borderRadius: 4,
-    padding: '6px 8px',
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  title: {
-    fontSize: 8,
-    color: '#555',
-    letterSpacing: 1,
-    textTransform: 'uppercase' as const,
-  },
-  value: {
-    fontSize: 11,
-    fontWeight: 700,
-    fontFamily: "'JetBrains Mono', monospace",
-  },
-};
-
 export const SPECharts: React.FC = () => {
-  const metricHistory = useOperatorStore(s => s.metricHistory);
+  const history = useOperatorStore(s => s.metricHistory);
+  const evals = history.map(m => m.raw_evaluations);
+  const emitted = history.map(m => m.emitted_events);
+  const full8 = history.map(m => m.full_8_layer_passes);
+  const l1p = history.map(m => m.layer_counts?.L1_context_gate?.pass ?? 0);
+  const l1f = history.map(m => m.layer_counts?.L1_context_gate?.fail ?? 0);
+  const l1n = history.map(m => m.layer_counts?.L1_context_gate?.not_evaluated ?? 0);
 
-  const evalsData = metricHistory.map(m => m.raw_evaluations);
-  const emittedData = metricHistory.map(m => m.emitted_events);
-  const full8Data = metricHistory.map(m => m.full_8_layer_passes);
-
-  // Layer 1 pass/fail over time
-  const l1PassData = metricHistory.map(m => m.layer_counts?.L1_context_gate?.pass ?? 0);
-  const l1FailData = metricHistory.map(m => m.layer_counts?.L1_context_gate?.fail ?? 0);
-  const l1NeData = metricHistory.map(m => m.layer_counts?.L1_context_gate?.not_evaluated ?? 0);
-
-  // State distribution
   const stateCounts: Record<string, number> = {};
-  metricHistory.forEach(m => {
-    const s = m.current_state || 'IDLE';
-    stateCounts[s] = (stateCounts[s] || 0) + 1;
-  });
+  history.forEach(m => { const s = m.current_state || 'IDLE'; stateCounts[s] = (stateCounts[s] || 0) + 1; });
 
   return (
     <div style={S.panel}>
       <div style={S.title}>SPE METRICS OVER TIME</div>
-
-      {metricHistory.length < 2 ? (
+      {history.length < 2 ? (
         <div style={S.empty}>
-          Collecting data... ({metricHistory.length} samples)
-          <br />
-          <span style={{ fontSize: 9, color: '#444' }}>Charts appear after a few polling cycles</span>
+          <span className="animate-pulse-glow" style={{ color: T.green.primary, fontSize: 14 }}>◆</span>
+          <span>Collecting data... ({history.length} samples)</span>
+          <span style={{ fontSize: 8, color: T.text.faint }}>Charts appear after a few polling cycles</span>
         </div>
       ) : (
         <div style={S.chartGrid}>
-          <MiniChart
-            title="Raw Evaluations"
-            data={evalsData}
-            color="#2196f3"
-            fillColor="rgba(33, 150, 243, 0.08)"
-          />
-          <MiniChart
-            title="Events Emitted"
-            data={emittedData}
-            color="#f0b90b"
-            fillColor="rgba(240, 185, 11, 0.08)"
-          />
-          <MiniChart
-            title="Full 8-Layer Passes"
-            data={full8Data}
-            color="#26a69a"
-            fillColor="rgba(38, 166, 154, 0.08)"
-          />
+          <MiniChart title="Raw Evaluations" data={evals} color="#39ff88" fill="rgba(57,255,136,0.06)" />
+          <MiniChart title="Events Emitted" data={emitted} color="#00ffa6" fill="rgba(0,255,166,0.06)" />
+          <MiniChart title="Full 8-Layer Passes" data={full8} color="#00e5c8" fill="rgba(0,229,200,0.06)" />
 
-          {/* State distribution */}
-          <div style={S.stateCard}>
-            <div style={miniS.title}>STATE DISTRIBUTION</div>
-            <div style={S.stateGrid}>
+          <div style={{ background: T.bg.card, border: `1px solid ${T.border.dim}`, borderRadius: 5, padding: '5px 7px' }}>
+            <div style={{ fontSize: 7, color: T.text.muted, letterSpacing: 1, marginBottom: 4 }}>STATE DISTRIBUTION</div>
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 3 }}>
               {Object.entries(stateCounts).sort((a, b) => b[1] - a[1]).map(([state, count]) => {
-                const total = metricHistory.length || 1;
-                const pct = (count / total * 100);
-                const color = state === 'CASCADE' ? '#ef5350' : state === 'UNWIND' ? '#ff9800' : '#555';
+                const pct = (count / (history.length || 1)) * 100;
+                const color = state === 'CASCADE' ? T.status.danger : state === 'UNWIND' ? T.status.warning : T.text.muted;
                 return (
-                  <div key={state} style={S.stateRow}>
-                    <span style={{ ...S.stateName, color }}>{state}</span>
-                    <div style={S.stateBar}>
-                      <div style={{ ...S.stateFill, width: `${pct}%`, background: color }} />
+                  <div key={state} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color, fontSize: 8, fontWeight: 600, width: 55 }}>{state}</span>
+                    <div style={{ flex: 1, height: 4, background: T.border.dim, borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2, transition: 'width 0.3s' }} />
                     </div>
-                    <span style={S.statePct}>{pct.toFixed(0)}%</span>
+                    <span style={{ fontSize: 7, color: T.text.dim, width: 26, textAlign: 'right' }}>{pct.toFixed(0)}%</span>
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* L1 stacked chart */}
-          <div style={{ ...miniS.container, height: 80 }}>
-            <div style={miniS.header}>
-              <span style={miniS.title}>L1 CONTEXT GATE</span>
-              <span style={{ fontSize: 8, color: '#555' }}>
-                <span style={{ color: '#26a69a' }}>■</span> pass{' '}
-                <span style={{ color: '#ef5350' }}>■</span> fail{' '}
-                <span style={{ color: '#555' }}>■</span> n/e
+          <div style={{ background: T.bg.card, border: `1px solid ${T.border.dim}`, borderRadius: 5, padding: '5px 7px', height: 78, display: 'flex', flexDirection: 'column' as const }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+              <span style={{ fontSize: 7, color: T.text.muted, letterSpacing: 1 }}>L1 CONTEXT GATE</span>
+              <span style={{ fontSize: 7, color: T.text.muted }}>
+                <span style={{ color: T.green.primary }}>■</span> pass <span style={{ color: T.status.danger }}>■</span> fail <span style={{ color: T.text.muted }}>■</span> n/e
               </span>
             </div>
-            <L1StackedBar passData={l1PassData} failData={l1FailData} neData={l1NeData} />
+            <L1Bar passData={l1p} failData={l1f} neData={l1n} />
           </div>
         </div>
       )}
@@ -237,102 +136,36 @@ export const SPECharts: React.FC = () => {
   );
 };
 
-const L1StackedBar: React.FC<{ passData: number[]; failData: number[]; neData: number[] }> = ({ passData, failData, neData }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
+const L1Bar: React.FC<{ passData: number[]; failData: number[]; neData: number[] }> = ({ passData, failData, neData }) => {
+  const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const c = ref.current;
+    if (!c) return;
+    const ctx = c.getContext('2d');
     if (!ctx) return;
-
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    const r = c.getBoundingClientRect();
+    c.width = r.width * dpr;
+    c.height = r.height * dpr;
     ctx.scale(dpr, dpr);
-
-    drawStackedBar(ctx, passData, failData, neData, rect.width, rect.height);
+    drawStackedBar(ctx, passData, failData, neData, r.width, r.height);
   }, [passData, failData, neData]);
-
-  return <canvas ref={canvasRef} style={{ width: '100%', height: '50px', display: 'block' }} />;
+  return <canvas ref={ref} style={{ width: '100%', height: '48px', display: 'block' }} />;
 };
 
 const S: Record<string, React.CSSProperties> = {
   panel: {
-    background: '#0c0c14',
-    border: '1px solid #1a1a2e',
+    background: `linear-gradient(180deg, ${T.bg.panel} 0%, ${T.bg.surface} 100%)`,
+    border: `1px solid ${T.border.mid}`,
     borderRadius: 6,
     padding: '10px 12px',
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+    boxShadow: `inset 0 1px 0 rgba(57,255,136,0.03)`,
   },
-  title: {
-    fontSize: 10,
-    fontWeight: 700,
-    color: '#f0b90b',
-    letterSpacing: 2,
-    marginBottom: 8,
-  },
-  empty: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#555',
-    fontSize: 11,
-    fontStyle: 'italic',
-  },
-  chartGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: 6,
-    flex: 1,
-    overflow: 'auto',
-  },
-  stateCard: {
-    background: '#0a0a12',
-    border: '1px solid #1a1a2e',
-    borderRadius: 4,
-    padding: '6px 8px',
-  },
-  stateGrid: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 3,
-    marginTop: 4,
-  },
-  stateRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-  },
-  stateName: {
-    fontSize: 8,
-    fontWeight: 600,
-    width: 60,
-    fontFamily: "'JetBrains Mono', monospace",
-  },
-  stateBar: {
-    flex: 1,
-    height: 4,
-    background: '#1a1a2e',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  stateFill: {
-    height: '100%',
-    borderRadius: 2,
-    transition: 'width 0.3s ease',
-  },
-  statePct: {
-    fontSize: 8,
-    color: '#666',
-    width: 28,
-    textAlign: 'right' as const,
-    fontFamily: "'JetBrains Mono', monospace",
-  },
+  title: { fontSize: 9, fontWeight: 700, color: T.green.primary, letterSpacing: 2, marginBottom: 8, textShadow: `0 0 8px ${T.green.glow}` },
+  empty: { flex: 1, display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', gap: 6, color: T.text.dim, fontSize: 11 },
+  chartGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5, flex: 1, overflow: 'auto' },
 };
