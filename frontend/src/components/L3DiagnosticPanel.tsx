@@ -182,6 +182,9 @@ export const L3DiagnosticPanel: React.FC = () => {
   return (
     <div style={S.panel}>
       <div style={S.title}>L3 1M DISPLACEMENT DIAGNOSTIC</div>
+      <div style={S.windowNote}>
+        Evaluates the latest rolling 1m window. Older displacements may no longer appear active.
+      </div>
 
       {/* Status grid */}
       <div style={S.statusGrid}>
@@ -248,6 +251,13 @@ const S: Record<string, React.CSSProperties> = {
     letterSpacing: 2,
     marginBottom: 4,
     textShadow: `0 0 8px rgba(0,229,200,0.2)`,
+  },
+  windowNote: {
+    fontSize: 7,
+    color: T.text.faint,
+    lineHeight: 1.4,
+    marginBottom: 2,
+    fontStyle: 'italic',
   },
   empty: {
     fontSize: 9,

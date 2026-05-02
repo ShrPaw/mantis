@@ -64,11 +64,15 @@ async def broadcast(message: dict):
     connected_clients.difference_update(dead)
 
 
-async def fetch_historical_candles():
-    """Fetch last 100 1m candles from Hyperliquid REST API."""
+async def fetch_historical_candles(limit: int = 1000):
+    """Fetch last N 1m candles from Hyperliquid REST API.
+
+    Default 1000 candles (~16.7 hours of 1m data).
+    Hyperliquid returns max 5000 per request.
+    """
     global _candle_cache
     now_ms = int(time.time() * 1000)
-    start_ms = now_ms - (100 * 60 * 1000)  # 100 minutes back
+    start_ms = now_ms - (limit * 60 * 1000)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -83,7 +87,7 @@ async def fetch_historical_candles():
                         "endTime": now_ms,
                     }
                 },
-                timeout=10,
+                timeout=15,
             )
             candles = resp.json()
             _candle_cache = [
@@ -239,8 +243,8 @@ async def metrics_broadcaster():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load historical candles
-    await fetch_historical_candles()
+    # Load historical candles (1000 1m candles ≈ 16.7h of context)
+    await fetch_historical_candles(limit=1000)
 
     stream_mgr.on("trades", on_trade)
     stream_mgr.on("l2Book", on_book)
@@ -459,6 +463,20 @@ async def spe_metrics():
         return data
     except Exception:
         return {"status": "no_data"}
+
+
+@app.get("/market/candles")
+async def market_candles(limit: int = 500):
+    """Read-only endpoint: return recent 1m candles for chart display.
+
+    No mutation. No trading. No logic changes.
+    Returns: time, open, high, low, close, volume
+    """
+    if limit < 1:
+        limit = 1
+    if limit > 5000:
+        limit = 5000
+    return _candle_cache[-limit:]
 
 
 @app.get("/l3/calibration")

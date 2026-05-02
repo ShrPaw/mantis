@@ -1,10 +1,21 @@
-// MANTIS — Main Price Chart with event overlays and annotations
+// MANTIS — Main Price Chart with event overlays, range controls, and follow-live
 // Central cockpit chart: candlestick + VWAP + session H/L + event markers
+// FIX: chart history / viewport / context — 2026-05-02
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, CrosshairMode, type IChartApi, type ISeriesApi, type CandlestickData, type LineData, type Time } from 'lightweight-charts';
 import { useStore } from '../store';
 import { useOperatorStore } from '../store/operatorStore';
 import { T } from '../styles/operatorTheme';
+
+// Range presets in candle counts
+const RANGE_PRESETS: Record<string, number> = {
+  '30m': 30,
+  '1h': 60,
+  '3h': 180,
+  '6h': 360,
+};
+
+type RangeKey = keyof typeof RANGE_PRESETS | 'fit';
 
 export function MainPriceChart() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -16,7 +27,11 @@ export function MainPriceChart() {
   const markersRef = useRef<any[]>([]);
   const loadedRef = useRef(false);
   const candleRef = useRef({ time: 0, open: 0, high: 0, low: Infinity, close: 0 });
+  const followLiveRef = useRef(true);
+  const userInteractingRef = useRef(false);
   const [hoveredPrice, setHoveredPrice] = useState<number | null>(null);
+  const [activeRange, setActiveRange] = useState<RangeKey>('3h');
+  const [followLive, setFollowLive] = useState(true);
 
   const candles = useStore(s => s.candles);
   const largeTrades = useStore(s => s.largeTrades);
@@ -27,6 +42,9 @@ export function MainPriceChart() {
 
   const spe = opStatus?.spe;
   const market = opStatus?.market;
+
+  // Keep ref in sync
+  followLiveRef.current = followLive;
 
   // Init chart
   useEffect(() => {
@@ -56,6 +74,8 @@ export function MainPriceChart() {
         borderColor: T.border.mid,
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 5,
+        barSpacing: 6,
       },
       handleScroll: true,
       handleScale: true,
@@ -127,8 +147,29 @@ export function MainPriceChart() {
       }
     });
 
+    // Detect user scroll/zoom → disable follow-live
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      if (!followLiveRef.current) return;
+      // Only mark user interaction if it wasn't us who scrolled
+      if (userInteractingRef.current) {
+        userInteractingRef.current = false;
+        return;
+      }
+      // If the user manually scrolls, we'll detect it on next range change
+    });
+
+    // Detect mouse-initiated scroll to break follow-live
+    const handleUserScroll = () => {
+      if (followLiveRef.current) {
+        setFollowLive(false);
+        followLiveRef.current = false;
+      }
+    };
+    containerRef.current.addEventListener('wheel', handleUserScroll, { passive: true });
+
     return () => {
       ro.disconnect();
+      containerRef.current?.removeEventListener('wheel', handleUserScroll);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -163,19 +204,64 @@ export function MainPriceChart() {
     }
     vwapRef.current?.setData(vwapData);
 
-    // Session H/L from last candle range
-    const last = candles[candles.length - 1];
+    // Session H/L
     const sessionH = Math.max(...candles.map(c => c.high));
     const sessionL = Math.min(...candles.map(c => c.low));
     if (sessionH > 0) sessionHighRef.current?.setData(candles.map(c => ({ time: c.time as any, value: sessionH })));
     if (sessionL < Infinity) sessionLowRef.current?.setData(candles.map(c => ({ time: c.time as any, value: sessionL })));
 
+    const last = candles[candles.length - 1];
     candleRef.current = { time: last.time, open: last.open, high: last.high, low: last.low, close: last.close };
-    chartRef.current?.timeScale().scrollToRealTime();
-    chartRef.current?.timeScale().fitContent();
+
+    // Apply initial range view
+    applyRange('3h', candles.length);
   }, [candles]);
 
-  // Update live candle from flow
+  // Apply range preset
+  const applyRange = useCallback((range: RangeKey, candleCount?: number) => {
+    if (!chartRef.current) return;
+    const total = candleCount ?? candles.length;
+    if (total === 0) return;
+
+    userInteractingRef.current = true;
+
+    if (range === 'fit') {
+      chartRef.current.timeScale().fitContent();
+    } else {
+      const count = RANGE_PRESETS[range];
+      if (!count) return;
+      // Show the last `count` candles
+      const from = Math.max(0, total - count);
+      const to = total - 1;
+      chartRef.current.timeScale().setVisibleLogicalRange({ from, to } as any);
+    }
+  }, [candles.length]);
+
+  // Handle range button click
+  const handleRangeClick = useCallback((range: RangeKey) => {
+    setActiveRange(range);
+    if (range === 'fit') {
+      setFollowLive(false);
+      followLiveRef.current = false;
+    }
+    applyRange(range);
+  }, [applyRange]);
+
+  // Handle follow-live toggle
+  const toggleFollowLive = useCallback(() => {
+    setFollowLive(prev => {
+      const next = !prev;
+      followLiveRef.current = next;
+      if (next) {
+        // Scroll to latest
+        userInteractingRef.current = true;
+        chartRef.current?.timeScale().scrollToRealTime();
+      }
+      return next;
+    });
+  }, []);
+
+  // Update live candle from flow (DO NOT auto-fitContent)
   useEffect(() => {
     if (!seriesRef.current || flow.last_price <= 0) return;
     const now = Math.floor(Date.now() / 1000);
@@ -195,6 +281,12 @@ export function MainPriceChart() {
     }
     seriesRef.current.update({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close });
 
+    // Only auto-scroll when follow-live is on
+    if (followLiveRef.current) {
+      userInteractingRef.current = true;
+      chartRef.current?.timeScale().scrollToRealTime();
+    }
+
     // Update session H/L live
     const sh = market?.session_high ?? flow.session_high;
     const sl = market?.session_low ?? flow.session_low;
@@ -202,26 +294,39 @@ export function MainPriceChart() {
     if (sl < Infinity) sessionLowRef.current?.setData([{ time: c.time as any, value: sl }]);
   }, [flow.last_price, market?.session_high, market?.session_low]);
 
-  // Build markers from events + large trades + SPE state
+  // Build markers from events + large trades + SPE state (with density control)
   useEffect(() => {
     if (!seriesRef.current) return;
     const markers: any[] = [];
+    const totalCandles = candles.length;
 
-    // Large trade markers
-    for (const trade of largeTrades.slice(0, 50)) {
+    // Determine marker density based on loaded candles
+    // When >200 candles, use compact markers for older data
+    const compactThreshold = totalCandles > 200;
+    const recentCutoff = totalCandles > 200
+      ? candles[Math.max(0, totalCandles - 60)]?.time ?? 0
+      : 0;
+
+    // Large trade markers — limit to top 30 by qty for readability
+    const sortedTrades = [...largeTrades].sort((a, b) => b.qty - a.qty).slice(0, 30);
+    for (const trade of sortedTrades) {
       if (trade.qty < 0.3) continue;
+      const t = Math.floor(trade.timestamp / 60) * 60;
+      const isRecent = t >= recentCutoff;
       markers.push({
-        time: Math.floor(trade.timestamp / 60) * 60 as any,
+        time: t as any,
         position: trade.side === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
         color: trade.side === 'buy' ? '#26a69a' : '#ef5350',
         shape: trade.side === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
-        text: `${trade.qty.toFixed(2)} BTC`,
-        size: trade.qty > 2 ? 3 : trade.qty > 1 ? 2 : 1,
+        text: isRecent || !compactThreshold ? `${trade.qty.toFixed(2)} BTC` : '',
+        size: isRecent ? (trade.qty > 2 ? 3 : trade.qty > 1 ? 2 : 1) : 1,
       });
     }
 
-    // Event engine markers
-    for (const evt of events.slice(0, 30)) {
+    // Event engine markers — limit to top 20, compact for old
+    for (const evt of events.slice(0, 20)) {
+      const t = Math.floor(evt.timestamp / 60) * 60;
+      const isRecent = t >= recentCutoff;
       const color = evt.event_type === 'absorption' ? '#00e5c8'
         : evt.event_type === 'exhaustion' ? '#ffcc66'
         : evt.event_type === 'liquidity_sweep' ? '#ff5f5f'
@@ -231,12 +336,12 @@ export function MainPriceChart() {
         : '#39ff88';
       const shape = evt.side === 'buy' ? 'circle' as const : 'square' as const;
       markers.push({
-        time: Math.floor(evt.timestamp / 60) * 60 as any,
+        time: t as any,
         position: evt.side === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
         color,
         shape,
-        text: evt.event_type.substring(0, 8),
-        size: 1,
+        text: isRecent || !compactThreshold ? evt.event_type.substring(0, 8) : '',
+        size: isRecent ? 1 : 1,
       });
     }
 
@@ -255,12 +360,15 @@ export function MainPriceChart() {
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     markersRef.current = markers;
     seriesRef.current.setMarkers(markers);
-  }, [largeTrades, events, spe?.current_state]);
+  }, [largeTrades, events, spe?.current_state, candles.length]);
 
   const currentPrice = flow.last_price || market?.last_price || 0;
   const priceChange = candles.length >= 2 ? currentPrice - candles[candles.length - 2]?.close : 0;
   const priceChangePct = candles.length >= 2 && candles[candles.length - 2]?.close > 0
     ? (priceChange / candles[candles.length - 2].close * 100) : 0;
+
+  // Visible candle count estimate
+  const visibleCount = activeRange === 'fit' ? candles.length : (RANGE_PRESETS[activeRange] ?? candles.length);
 
   return (
     <div style={S.wrapper}>
@@ -292,6 +400,47 @@ export function MainPriceChart() {
         </div>
       </div>
 
+      {/* Range controls toolbar */}
+      <div style={S.toolbar}>
+        {Object.keys(RANGE_PRESETS).map(key => (
+          <button
+            key={key}
+            onClick={() => handleRangeClick(key as RangeKey)}
+            style={{
+              ...S.rangeBtn,
+              background: activeRange === key ? T.green.glow : 'transparent',
+              color: activeRange === key ? T.green.primary : T.text.muted,
+              borderColor: activeRange === key ? T.green.primary + '40' : T.border.dim,
+            }}
+          >
+            {key}
+          </button>
+        ))}
+        <button
+          onClick={() => handleRangeClick('fit')}
+          style={{
+            ...S.rangeBtn,
+            background: activeRange === 'fit' ? T.green.glow : 'transparent',
+            color: activeRange === 'fit' ? T.green.primary : T.text.muted,
+            borderColor: activeRange === 'fit' ? T.green.primary + '40' : T.border.dim,
+          }}
+        >
+          FIT
+        </button>
+        <div style={S.toolbarDivider} />
+        <button
+          onClick={toggleFollowLive}
+          style={{
+            ...S.rangeBtn,
+            background: followLive ? 'rgba(57,255,136,0.12)' : 'transparent',
+            color: followLive ? T.green.primary : T.text.muted,
+            borderColor: followLive ? T.green.primary + '40' : T.border.dim,
+          }}
+        >
+          {followLive ? '● LIVE' : '○ LIVE'}
+        </button>
+      </div>
+
       {/* SPE state badge overlay */}
       {spe && (
         <div style={S.stateBadge}>
@@ -311,9 +460,12 @@ export function MainPriceChart() {
       {/* Chart */}
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* Bottom info */}
+      {/* Bottom info bar with candle counts */}
       <div style={S.bottomBar}>
-        <span style={S.bottomText}>1m CANDLES · SCROLL TO ZOOM · {markersRef.current.length} MARKERS</span>
+        <span style={S.bottomText}>
+          Loaded: {candles.length} candles · Visible: ~{Math.min(visibleCount, candles.length)} candles · Mode: {followLive ? 'Follow Live' : 'Manual'}
+        </span>
+        <span style={S.bottomText}>{markersRef.current.length} MARKERS · 1m</span>
         {hoveredPrice && <span style={S.bottomText}>${hoveredPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>}
       </div>
     </div>
@@ -348,6 +500,29 @@ const S: Record<string, React.CSSProperties> = {
   change: { fontSize: 10, fontWeight: 600 },
   metaBlock: { display: 'flex', gap: 10, alignItems: 'center' },
   legendBlock: { display: 'flex', gap: 8, alignItems: 'center' },
+  toolbar: {
+    position: 'absolute', top: 30, left: 10, zIndex: 10,
+    display: 'flex', alignItems: 'center', gap: 3,
+    pointerEvents: 'auto',
+  },
+  rangeBtn: {
+    fontSize: 8,
+    fontWeight: 700,
+    fontFamily: "'JetBrains Mono', monospace",
+    letterSpacing: 0.5,
+    padding: '2px 7px',
+    border: '1px solid',
+    borderRadius: 3,
+    cursor: 'pointer',
+    background: 'transparent',
+    transition: 'all 0.15s',
+  },
+  toolbarDivider: {
+    width: 1,
+    height: 12,
+    background: T.border.dim,
+    margin: '0 3px',
+  },
   stateBadge: {
     position: 'absolute', top: 36, right: 10, zIndex: 10,
     display: 'flex', alignItems: 'center', gap: 6, pointerEvents: 'none',

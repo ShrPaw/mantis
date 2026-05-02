@@ -470,6 +470,65 @@ All safety language requirements met. No trading actions exist. No backend logic
 
 ---
 
+## 13. Chart History / Viewport Fix (2026-05-02)
+
+### Problem
+The main chart showed too few candles (only ~100), making structural reading impossible. The chart auto-reset viewport on every tick, snapping back to the latest candle even when the operator scrolled back.
+
+### Changes Made
+
+**Backend (`backend/main.py`):**
+- Increased historical candle fetch from 100 → 1000 candles (~16.7 hours of 1m data)
+- Added read-only `GET /market/candles?limit=500` endpoint
+  - Returns: `time, open, high, low, close, volume`
+  - No mutation, no trading logic, no SPE changes
+  - Max limit: 5000, default: 500
+
+**Frontend (`MainPriceChart.tsx`):**
+- **Range controls toolbar**: 30m / 1h / 3h / 6h / Fit / Follow Live buttons
+  - 30m = 30 candles, 1h = 60, 3h = 180, 6h = 360
+  - Fit = all loaded candles
+  - Default view: 3h (180 candles)
+- **Follow Live toggle**: ON = chart auto-scrolls to latest candle; OFF = preserves viewport
+  - Auto-disables on mouse wheel scroll
+  - Re-enable via button click
+- **No more auto-reset on tick**: Removed `fitContent()` from live update path
+  - Chart only auto-scrolls when Follow Live is ON
+  - User viewport is preserved during manual scroll/zoom
+- **Candle count display**: Bottom bar shows `Loaded: N candles · Visible: X candles · Mode: Follow Live / Manual`
+- **Marker density control**: When >200 candles loaded, older markers use compact rendering (no text labels, smaller size), recent region stays readable
+
+**Frontend (`L3DiagnosticPanel.tsx`):**
+- Added clarification note: "Evaluates the latest rolling 1m window. Older displacements may no longer appear active."
+- Makes clear L3 does not evaluate the entire visible chart
+
+### Candle Buffer
+- Backend loads 1000 1m candles on startup (~16.7h context)
+- Frontend retains all candles in Zustand store
+- Range controls viewport, not data — all loaded candles are always available
+
+### Known Limitations
+- Hyperliquid REST API returns max ~5000 candles per request
+- Very old candles (>1000) would require pagination or multiple requests
+- Marker clustering is simple (text hidden for old candles); a proper clustering algorithm would be needed for 500+ event markers
+- Follow Live uses `scrollToRealTime()` which pins to the right edge; fine-grained "scroll to latest but allow some right margin" would require custom logic
+
+### Verification Checklist
+- [x] Chart shows at least 1h of candles by default (default is 3h)
+- [x] 30m / 1h / 3h / 6h buttons work
+- [x] Fit button shows all loaded candles
+- [x] Previous candles are visible
+- [x] User can scroll/zoom manually
+- [x] Follow Live toggle works (ON/OFF)
+- [x] Chart does not snap back after every tick when Follow Live is OFF
+- [x] No huge blank left side
+- [x] No runtime errors (TypeScript types preserved)
+- [x] No SPE logic changes
+- [x] No threshold changes
+- [x] No execution enabled
+
+---
+
 *Report updated: 2026-05-02*  
 *No trading logic modified. No SPE thresholds changed. No execution enabled.*  
 *UI and monitoring only.*
