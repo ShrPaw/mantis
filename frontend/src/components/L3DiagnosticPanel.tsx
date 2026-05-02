@@ -1,36 +1,44 @@
 // MANTIS Operator Dashboard — L3 1M Displacement Diagnostic Panel
 // Shadow diagnostic showing production L3 status + 5 shadow variant evaluations
+// All field access is defensive — handles missing/null/error states gracefully.
 import React, { useEffect, useState, useCallback } from 'react';
 import { T } from '../styles/operatorTheme';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const POLL_INTERVAL = 5000; // 5 seconds
+const POLL_INTERVAL = 5000;
+
+// ── Types (all fields optional for safety) ──
+
+interface L3Metrics {
+  body_bps?: number | null;
+  range_bps?: number | null;
+  close_to_close_bps?: number | null;
+  leg_3c_bps?: number | null;
+  leg_5c_bps?: number | null;
+  directional_efficiency_3c?: number | null;
+  directional_efficiency_5c?: number | null;
+  pullback_ratio?: number | null;
+  max_extension_bps?: number | null;
+  volume_percentile?: number | null;
+  volatility_percentile?: number | null;
+}
 
 interface L3CalibrationData {
-  timestamp: number;
-  candles_evaluated: number;
-  production_l3_status: string;
-  production_l3_block_reason: string;
-  shadow_3c_pass: boolean;
-  shadow_stress_pass: boolean;
-  shadow_single_candle_pass: boolean;
-  shadow_5c_pass: boolean;
-  current: {
-    body_bps: number;
-    range_bps: number;
-    close_to_close_bps: number;
-    '3c_leg_bps': number;
-    '5c_leg_bps': number;
-    directional_efficiency_3c: number;
-    directional_efficiency_5c: number;
-    pullback_ratio: number;
-    max_extension_bps: number;
-    volume_percentile: number;
-    volatility_percentile: number;
-  };
-  percentile_ranks: Record<string, number>;
-  interpretation: string;
+  status?: string;
+  production_l3_status?: string;
+  production_l3_block_reason?: string;
+  shadow_3c_pass?: boolean;
+  shadow_stress_pass?: boolean;
+  shadow_single_candle_pass?: boolean;
+  shadow_5c_pass?: boolean;
+  metrics?: L3Metrics;
+  interpretation?: string;
+  ready?: boolean;
+  candles_evaluated?: number;
+  percentile_ranks?: Record<string, number | undefined>;
 }
+
+// ── Helpers ──
 
 const STATUS_COLORS: Record<string, string> = {
   PASS: T.status.success,
@@ -38,7 +46,26 @@ const STATUS_COLORS: Record<string, string> = {
   NOT_EVALUATED: T.text.muted,
 };
 
-function StatusBadge({ label, pass, prod }: { label: string; pass: boolean; prod?: string }) {
+function fmt(v: number | null | undefined, decimals = 2): string {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return v.toFixed(decimals);
+}
+
+function fmtPct(v: number | null | undefined): string {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return (v * 100).toFixed(0) + '%';
+}
+
+function rankColor(rank: number | null | undefined): string {
+  if (rank === null || rank === undefined) return T.text.muted;
+  if (rank >= 0.85) return T.status.success;
+  if (rank >= 0.6) return T.status.warning;
+  return T.text.muted;
+}
+
+// ── Sub-components ──
+
+function StatusBadge({ label, pass, prod }: { label: string; pass?: boolean; prod?: string }) {
   const color = prod
     ? (STATUS_COLORS[prod] || T.text.muted)
     : (pass ? T.status.success : T.status.danger);
@@ -53,20 +80,17 @@ function StatusBadge({ label, pass, prod }: { label: string; pass: boolean; prod
 }
 
 function MetricRow({ label, value, unit, rank }: {
-  label: string; value: number | string; unit?: string; rank?: number;
+  label: string; value: string; unit?: string; rank?: number | null;
 }) {
   return (
     <div style={S.metricRow}>
       <span style={S.metricLabel}>{label}</span>
       <span style={S.metricValue}>
-        {typeof value === 'number' ? value.toFixed(2) : value}
-        {unit && <span style={S.metricUnit}>{unit}</span>}
+        {value}
+        {unit && value !== '—' && <span style={S.metricUnit}>{unit}</span>}
       </span>
-      {rank !== undefined && (
-        <span style={{
-          ...S.rankBadge,
-          color: rank >= 0.85 ? T.status.success : rank >= 0.6 ? T.status.warning : T.text.muted,
-        }}>
+      {rank !== undefined && rank !== null && (
+        <span style={{ ...S.rankBadge, color: rankColor(rank) }}>
           p{(rank * 100).toFixed(0)}
         </span>
       )}
@@ -74,21 +98,35 @@ function MetricRow({ label, value, unit, rank }: {
   );
 }
 
+// ── Main Panel ──
+
 export const L3DiagnosticPanel: React.FC = () => {
   const [data, setData] = useState<L3CalibrationData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
       const resp = await fetch(`${API_BASE}/l3/calibration`);
-      if (!resp.ok) return;
-      const json = await resp.json();
-      if (json.status === 'event_engine_disabled' || json.status === 'l3_calibrator_not_loaded') {
-        setError(json.status);
+      if (!resp.ok) {
+        setFetchError(`HTTP ${resp.status}`);
         return;
       }
+      const json: L3CalibrationData = await resp.json();
+
+      // Validate: must have status field
+      if (!json || typeof json !== 'object') {
+        setFetchError('invalid_response');
+        return;
+      }
+
+      // Check for error status (old backend) — show as warming up
+      if (json.status === 'error') {
+        setFetchError(json.production_l3_block_reason || 'calibration error');
+        return;
+      }
+
       setData(json);
-      setError(null);
+      setFetchError(null);
     } catch {
       // silent — panel just won't update
     }
@@ -100,28 +138,46 @@ export const L3DiagnosticPanel: React.FC = () => {
     return () => clearInterval(timer);
   }, [fetchData]);
 
-  if (error) {
+  // ── Error state (inside panel only, never blacks out cockpit) ──
+  if (fetchError) {
     return (
       <div style={S.panel}>
         <div style={S.title}>L3 1M DISPLACEMENT DIAGNOSTIC</div>
-        <div style={S.empty}>Calibrator {error === 'l3_calibrator_not_loaded' ? 'not loaded' : 'disabled'}</div>
-      </div>
-    );
-  }
-
-  if (!data || data.candles_evaluated < 5) {
-    return (
-      <div style={S.panel}>
-        <div style={S.title}>L3 1M DISPLACEMENT DIAGNOSTIC</div>
-        <div style={S.empty}>
-          Warming up — {data?.candles_evaluated ?? 0}/5 candles
+        <div style={S.errorCard}>
+          <span style={S.errorIcon}>⚠</span>
+          <span style={S.errorText}>{fetchError}</span>
         </div>
       </div>
     );
   }
 
-  const c = data.current;
-  const ranks = data.percentile_ranks;
+  // ── No data yet ──
+  if (!data) {
+    return (
+      <div style={S.panel}>
+        <div style={S.title}>L3 1M DISPLACEMENT DIAGNOSTIC</div>
+        <div style={S.empty}>Connecting...</div>
+      </div>
+    );
+  }
+
+  // ── Not ready (warming up) ──
+  if (!data.ready) {
+    return (
+      <div style={S.panel}>
+        <div style={S.title}>L3 1M DISPLACEMENT DIAGNOSTIC</div>
+        <div style={S.warmingUp}>
+          <span style={S.warmingIcon}>◎</span>
+          <span>Calibration warming up</span>
+          <span style={S.warmingCount}>{data.candles_evaluated ?? 0}/5 candles</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Ready — full render ──
+  const m = data.metrics || {};
+  const ranks = data.percentile_ranks || {};
 
   return (
     <div style={S.panel}>
@@ -146,29 +202,33 @@ export const L3DiagnosticPanel: React.FC = () => {
       {/* Metrics */}
       <div style={S.metricsSection}>
         <div style={S.sectionLabel}>CURRENT METRICS</div>
-        <MetricRow label="body" value={c.body_bps} unit=" bps" rank={ranks.body_bps_rank_60} />
-        <MetricRow label="range" value={c.range_bps} unit=" bps" rank={ranks.range_bps_rank_60} />
-        <MetricRow label="3c leg" value={c['3c_leg_bps']} unit=" bps" rank={ranks['3c_leg_bps_rank_60']} />
-        <MetricRow label="5c leg" value={c['5c_leg_bps']} unit=" bps" rank={ranks['5c_leg_bps_rank_60']} />
-        <MetricRow label="eff 3c" value={c.directional_efficiency_3c} />
-        <MetricRow label="eff 5c" value={c.directional_efficiency_5c} />
-        <MetricRow label="pullback" value={c.pullback_ratio} />
-        <MetricRow label="vol pct" value={(c.volume_percentile * 100).toFixed(0) + '%'} />
-        <MetricRow label="vol rank" value={(c.volatility_percentile * 100).toFixed(0) + '%'} />
+        <MetricRow label="body" value={fmt(m.body_bps)} unit=" bps" rank={ranks.body_bps_rank_60} />
+        <MetricRow label="range" value={fmt(m.range_bps)} unit=" bps" rank={ranks.range_bps_rank_60} />
+        <MetricRow label="3c leg" value={fmt(m.leg_3c_bps)} unit=" bps" rank={ranks.leg_3c_bps_rank_60} />
+        <MetricRow label="5c leg" value={fmt(m.leg_5c_bps)} unit=" bps" rank={ranks.leg_5c_bps_rank_60} />
+        <MetricRow label="eff 3c" value={fmt(m.directional_efficiency_3c, 3)} />
+        <MetricRow label="eff 5c" value={fmt(m.directional_efficiency_5c, 3)} />
+        <MetricRow label="pullback" value={fmt(m.pullback_ratio, 3)} />
+        <MetricRow label="vol pct" value={fmtPct(m.volume_percentile)} />
+        <MetricRow label="vol rank" value={fmtPct(m.volatility_percentile)} />
       </div>
 
       {/* Interpretation */}
-      <div style={S.interpretation}>
-        {data.interpretation}
-      </div>
+      {data.interpretation && (
+        <div style={S.interpretation}>
+          {data.interpretation}
+        </div>
+      )}
 
       {/* Footer */}
       <div style={S.footer}>
-        {data.candles_evaluated} candles evaluated
+        {(data.candles_evaluated ?? 0)} candles evaluated
       </div>
     </div>
   );
 };
+
+// ── Styles ──
 
 const S: Record<string, React.CSSProperties> = {
   panel: {
@@ -195,6 +255,43 @@ const S: Record<string, React.CSSProperties> = {
     textAlign: 'center',
     padding: '12px 0',
     fontStyle: 'italic',
+  },
+  errorCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '6px 8px',
+    background: 'rgba(255,95,95,0.06)',
+    border: `1px solid rgba(255,95,95,0.12)`,
+    borderRadius: 4,
+  },
+  errorIcon: {
+    color: T.status.warning,
+    fontSize: 11,
+  },
+  errorText: {
+    fontSize: 8,
+    color: T.status.warning,
+    lineHeight: 1.3,
+  },
+  warmingUp: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 4,
+    padding: '12px 0',
+    fontSize: 9,
+    color: T.text.muted,
+  },
+  warmingIcon: {
+    fontSize: 14,
+    color: T.accent.cyan,
+    animation: 'pulse 2s infinite',
+  },
+  warmingCount: {
+    fontSize: 8,
+    color: T.text.faint,
+    fontFamily: T.font.mono,
   },
   statusGrid: {
     display: 'grid',

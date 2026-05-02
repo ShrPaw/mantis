@@ -13,6 +13,8 @@ Computes:
 Persists:
   - data/metrics/l3_live_shadow.json  (latest snapshot)
   - data/events/l3_shadow_events.jsonl (append on any shadow pass)
+
+API response uses safe field names (no numeric-prefix keys).
 """
 
 import json
@@ -148,6 +150,35 @@ class PercentileStats:
 
 
 # ────────────────────────────────────────────────────────────
+# PercentileStats bundle — wraps window dict for safe access
+# ────────────────────────────────────────────────────────────
+
+class StatBundle:
+    """
+    Wraps {window_key: PercentileStats} with safe accessors.
+    Prevents KeyError from mismatched dict keys.
+    """
+    def __init__(self, window_stats: dict[str, PercentileStats]):
+        self._stats = window_stats
+
+    def get(self, window: str) -> PercentileStats:
+        """Get stats for a window key. Returns empty PercentileStats if missing."""
+        return self._stats.get(window, PercentileStats(60))
+
+    def p85(self, window: str = "60") -> float:
+        return self.get(window).percentile(0.85)
+
+    def p90(self, window: str = "60") -> float:
+        return self.get(window).percentile(0.90)
+
+    def rank(self, val: float, window: str = "60") -> float:
+        return self.get(window).rank(val)
+
+    def to_dict(self) -> dict:
+        return {w: ps.to_dict() for w, ps in self._stats.items()}
+
+
+# ────────────────────────────────────────────────────────────
 # Production L3 replay (exact logic)
 # ────────────────────────────────────────────────────────────
 
@@ -159,17 +190,12 @@ class ProductionL3Replay:
 
     def __init__(self):
         self._body_history: deque = deque(maxlen=200)
-        self._active = False
-        self._start_price = 0.0
-        self._start_time = 0.0
-        self._direction = ""
 
     def evaluate(self, candles: list[Candle1m]) -> dict:
         """Evaluate production L3 logic from recent candles."""
         if len(candles) < 3:
             return {"pass": False, "reason": "insufficient_data", "status": "NOT_EVALUATED"}
 
-        # Simulate 180s window = last 3 candles
         recent = candles[-3:]
         prices = []
         for c in recent:
@@ -239,7 +265,7 @@ class ProductionL3Replay:
 
 
 # ────────────────────────────────────────────────────────────
-# Shadow Variants
+# Metric helpers (pure functions, safe for empty input)
 # ────────────────────────────────────────────────────────────
 
 def _leg_bps(candles: list[Candle1m], count: int) -> float:
@@ -256,9 +282,7 @@ def _leg_bps(candles: list[Candle1m], count: int) -> float:
 
 
 def _directional_efficiency(candles: list[Candle1m], count: int) -> float:
-    """
-    Net move / total path. 1.0 = straight line, 0.0 = round trip.
-    """
+    """Net move / total path. 1.0 = straight line, 0.0 = round trip."""
     if len(candles) < count or count < 2:
         return 0.0
     leg = candles[-count:]
@@ -283,11 +307,9 @@ def _pullback_ratio(candles: list[Candle1m], count: int) -> float:
     if leg_range <= 0:
         return 0.0
 
-    # Direction: up leg or down leg
     is_up = leg[-1].close >= leg[0].open
 
     if is_up:
-        # Max pullback = how far price dipped from running high
         max_pullback = 0.0
         running_high = leg[0].high
         for c in leg:
@@ -296,7 +318,6 @@ def _pullback_ratio(candles: list[Candle1m], count: int) -> float:
             max_pullback = max(max_pullback, pullback)
         return max_pullback / leg_range
     else:
-        # Max pullback = how far price bounced from running low
         max_pullback = 0.0
         running_low = leg[0].low
         for c in leg:
@@ -326,14 +347,17 @@ def _max_extension_bps(candles: list[Candle1m], count: int) -> float:
     open_price = leg[0].open
     if open_price <= 0:
         return 0.0
-    max_ext = max(
-        abs(c.high - open_price),
-        abs(c.low - open_price),
-    )
+    max_ext = 0.0
     for c in leg:
+        max_ext = max(max_ext, abs(c.high - open_price))
+        max_ext = max(max_ext, abs(c.low - open_price))
         max_ext = max(max_ext, abs(c.close - open_price))
     return max_ext / open_price * 10000
 
+
+# ────────────────────────────────────────────────────────────
+# Shadow Variants
+# ────────────────────────────────────────────────────────────
 
 @dataclass
 class ShadowVariant:
@@ -344,17 +368,17 @@ class ShadowVariant:
     metrics: dict = field(default_factory=dict)
 
 
-def _eval_shadow_3c(candles: list[Candle1m], stats: dict[str, PercentileStats],
+def _eval_shadow_3c(candles: list[Candle1m], stats: StatBundle,
                     volume_pct: float) -> ShadowVariant:
     """
     Shadow B: 1m 3-candle displacement
-      3c_leg_bps >= rolling p85
+      leg_3c_bps >= rolling p85
       AND directional_efficiency_3c >= 0.55
       AND volume_percentile >= 60
     """
     leg = _leg_bps(candles, 3)
     eff = _directional_efficiency(candles, 3)
-    p85 = stats["3c_leg_bps"].percentile(0.85)
+    p85 = stats.p85("60")
 
     pass_leg = leg >= p85 and p85 > 0
     pass_eff = eff >= 0.55
@@ -373,7 +397,7 @@ def _eval_shadow_3c(candles: list[Candle1m], stats: dict[str, PercentileStats],
         passed=pass_leg and pass_eff and pass_vol,
         reason="; ".join(reasons) if reasons else "confirmed",
         metrics={
-            "3c_leg_bps": round(leg, 2),
+            "leg_3c_bps": round(leg, 2),
             "directional_efficiency_3c": round(eff, 3),
             "volume_percentile": round(volume_pct, 3),
             "p85_threshold": round(p85, 2),
@@ -381,17 +405,17 @@ def _eval_shadow_3c(candles: list[Candle1m], stats: dict[str, PercentileStats],
     )
 
 
-def _eval_shadow_stress(candles: list[Candle1m], stats: dict[str, PercentileStats],
+def _eval_shadow_stress(candles: list[Candle1m], stats: StatBundle,
                         volume_pct: float) -> ShadowVariant:
     """
     Shadow C: 1m stress displacement
-      3c_leg_bps >= rolling p90
+      leg_3c_bps >= rolling p90
       AND directional_efficiency_3c >= 0.65
       AND volume_percentile >= 75
     """
     leg = _leg_bps(candles, 3)
     eff = _directional_efficiency(candles, 3)
-    p90 = stats["3c_leg_bps"].percentile(0.90)
+    p90 = stats.p90("60")
 
     pass_leg = leg >= p90 and p90 > 0
     pass_eff = eff >= 0.65
@@ -410,7 +434,7 @@ def _eval_shadow_stress(candles: list[Candle1m], stats: dict[str, PercentileStat
         passed=pass_leg and pass_eff and pass_vol,
         reason="; ".join(reasons) if reasons else "confirmed",
         metrics={
-            "3c_leg_bps": round(leg, 2),
+            "leg_3c_bps": round(leg, 2),
             "directional_efficiency_3c": round(eff, 3),
             "volume_percentile": round(volume_pct, 3),
             "p90_threshold": round(p90, 2),
@@ -419,8 +443,8 @@ def _eval_shadow_stress(candles: list[Candle1m], stats: dict[str, PercentileStat
 
 
 def _eval_shadow_single_candle(candles: list[Candle1m],
-                               stats_body: dict,
-                               stats_range: dict = None) -> ShadowVariant:
+                               body_stats: StatBundle,
+                               range_stats: StatBundle) -> ShadowVariant:
     """
     Shadow D: Single candle impulse
       body_bps >= rolling p90
@@ -433,13 +457,8 @@ def _eval_shadow_single_candle(candles: list[Candle1m],
     body = last.body_bps
     rng = last.range_bps
 
-    # stats_body is {window_key: PercentileStats} for body_bps
-    p90_body = stats_body["60"].percentile(0.90) if "60" in stats_body else 0.0
-    # stats_range is {window_key: PercentileStats} for range_bps (or fallback to body)
-    if stats_range and "60" in stats_range:
-        p85_range = stats_range["60"].percentile(0.85)
-    else:
-        p85_range = p90_body  # fallback
+    p90_body = body_stats.p90("60")
+    p85_range = range_stats.p85("60")
 
     pass_body = body >= p90_body and p90_body > 0
     pass_range = rng >= p85_range and p85_range > 0
@@ -464,17 +483,17 @@ def _eval_shadow_single_candle(candles: list[Candle1m],
 
 
 def _eval_shadow_5c(candles: list[Candle1m],
-                    stats: dict[str, PercentileStats]) -> ShadowVariant:
+                    stats: StatBundle) -> ShadowVariant:
     """
     Shadow E: 5-candle displacement leg
-      5c_leg_bps >= rolling p85
+      leg_5c_bps >= rolling p85
       AND directional_efficiency_5c >= 0.60
       AND pullback_ratio <= 0.40
     """
     leg = _leg_bps(candles, 5)
     eff = _directional_efficiency(candles, 5)
     pbr = _pullback_ratio(candles, 5)
-    p85 = stats["5c_leg_bps"].percentile(0.85)
+    p85 = stats.p85("60")
 
     pass_leg = leg >= p85 and p85 > 0
     pass_eff = eff >= 0.60
@@ -493,7 +512,7 @@ def _eval_shadow_5c(candles: list[Candle1m],
         passed=pass_leg and pass_eff and pass_pbr,
         reason="; ".join(reasons) if reasons else "confirmed",
         metrics={
-            "5c_leg_bps": round(leg, 2),
+            "leg_5c_bps": round(leg, 2),
             "directional_efficiency_5c": round(eff, 3),
             "pullback_ratio": round(pbr, 3),
             "p85_threshold": round(p85, 2),
@@ -502,8 +521,65 @@ def _eval_shadow_5c(candles: list[Candle1m],
 
 
 # ────────────────────────────────────────────────────────────
+# Safe response builder
+# ────────────────────────────────────────────────────────────
+
+def _safe_result(
+    *,
+    production_l3_status: str = "NOT_EVALUATED",
+    production_l3_block_reason: str = "",
+    shadow_3c_pass: bool = False,
+    shadow_stress_pass: bool = False,
+    shadow_single_candle_pass: bool = False,
+    shadow_5c_pass: bool = False,
+    metrics: Optional[dict] = None,
+    interpretation: str = "",
+    ready: bool = False,
+    candles_evaluated: int = 0,
+    percentile_ranks: Optional[dict] = None,
+    percentile_thresholds: Optional[dict] = None,
+) -> dict:
+    """Build a guaranteed-safe API response with all required fields."""
+    return {
+        "status": "ok",
+        "production_l3_status": production_l3_status,
+        "production_l3_block_reason": production_l3_block_reason,
+        "shadow_3c_pass": shadow_3c_pass,
+        "shadow_stress_pass": shadow_stress_pass,
+        "shadow_single_candle_pass": shadow_single_candle_pass,
+        "shadow_5c_pass": shadow_5c_pass,
+        "metrics": metrics or {
+            "body_bps": None,
+            "range_bps": None,
+            "close_to_close_bps": None,
+            "leg_3c_bps": None,
+            "leg_5c_bps": None,
+            "directional_efficiency_3c": None,
+            "directional_efficiency_5c": None,
+            "pullback_ratio": None,
+            "max_extension_bps": None,
+            "volume_percentile": None,
+            "volatility_percentile": None,
+        },
+        "interpretation": interpretation,
+        "ready": ready,
+        "candles_evaluated": candles_evaluated,
+        "percentile_ranks": percentile_ranks or {},
+        "percentile_thresholds": percentile_thresholds or {},
+    }
+
+
+# ────────────────────────────────────────────────────────────
 # Main Calibrator
 # ────────────────────────────────────────────────────────────
+
+# Metric keys — all safe (no numeric prefixes)
+METRIC_BODY = "body_bps"
+METRIC_RANGE = "range_bps"
+METRIC_LEG_3C = "leg_3c_bps"
+METRIC_LEG_5C = "leg_5c_bps"
+WINDOW_KEYS = ["60", "240", "720"]
+
 
 class L3LiveCalibrator:
     """
@@ -523,12 +599,8 @@ class L3LiveCalibrator:
 
         # Rolling percentile stats at 3 windows
         self._stats: dict[str, dict[str, PercentileStats]] = {}
-        for metric in ["body_bps", "range_bps", "3c_leg_bps", "5c_leg_bps"]:
-            self._stats[metric] = {
-                "60": PercentileStats(60),
-                "240": PercentileStats(240),
-                "720": PercentileStats(720),
-            }
+        for metric in [METRIC_BODY, METRIC_RANGE, METRIC_LEG_3C, METRIC_LEG_5C]:
+            self._stats[metric] = {w: PercentileStats(int(w)) for w in WINDOW_KEYS}
 
         # Volume tracking for percentile
         self._candle_volumes: deque = deque(maxlen=720)
@@ -544,6 +616,13 @@ class L3LiveCalibrator:
         os.makedirs("data/events", exist_ok=True)
 
         logger.info("L3 Live Calibrator initialized (shadow diagnostic)")
+
+    def _get_bundle(self, metric: str) -> StatBundle:
+        """Get a StatBundle for a metric key. Never raises."""
+        window_dict = self._stats.get(metric)
+        if window_dict is None:
+            return StatBundle({w: PercentileStats(int(w)) for w in WINDOW_KEYS})
+        return StatBundle(window_dict)
 
     def on_trade(self, price: float, qty: float, delta: float, timestamp: float):
         """
@@ -565,94 +644,145 @@ class L3LiveCalibrator:
         self._current_candle.add_trade(price, qty, delta)
 
     def _on_candle_close(self, candle: Candle1m):
-        """Process a closed candle: update stats, evaluate shadows."""
-        # Update volume tracking
+        """Process a closed candle: update stats."""
         self._candle_volumes.append(candle.volume)
 
-        # Update percentile stats
-        for metric_name, getter in [
-            ("body_bps", lambda c: c.body_bps),
-            ("range_bps", lambda c: c.range_bps),
+        # Single-candle metrics
+        for metric, val in [
+            (METRIC_BODY, candle.body_bps),
+            (METRIC_RANGE, candle.range_bps),
         ]:
-            val = getter(candle)
-            for win_key in self._stats[metric_name]:
-                self._stats[metric_name][win_key].add(val)
+            for ps in self._stats[metric].values():
+                ps.add(val)
 
-        # Multi-candle metrics need at least N candles
+        # Multi-candle metrics
         candle_list = list(self._candles)
         if len(candle_list) >= 3:
             leg3 = _leg_bps(candle_list, 3)
-            for win_key in self._stats["3c_leg_bps"]:
-                self._stats["3c_leg_bps"][win_key].add(leg3)
+            for ps in self._stats[METRIC_LEG_3C].values():
+                ps.add(leg3)
 
         if len(candle_list) >= 5:
             leg5 = _leg_bps(candle_list, 5)
-            for win_key in self._stats["5c_leg_bps"]:
-                self._stats["5c_leg_bps"][win_key].add(leg5)
+            for ps in self._stats[METRIC_LEG_5C].values():
+                ps.add(leg5)
 
     def evaluate(self) -> dict:
         """
         Run all shadow variants and return full diagnostic snapshot.
-        Called on-demand (e.g., by API endpoint).
+        ALWAYS returns a safe response — never raises.
         """
-        candle_list = list(self._candles)
-        if len(candle_list) < 5:
-            return self._build_result(
-                candle_list, prod_status="NOT_EVALUATED",
-                prod_reason="insufficient_candles",
-                shadows=[], interpretation="Warming up — need at least 5 candles",
+        try:
+            return self._evaluate_inner()
+        except Exception as e:
+            logger.error(f"L3 calibrator evaluate error: {e}", exc_info=True)
+            return _safe_result(
+                production_l3_status="NOT_EVALUATED",
+                production_l3_block_reason=f"calibrator_error: {e}",
+                interpretation=f"Calibrator error: {e}",
+                candles_evaluated=len(self._candles),
             )
 
+    def _evaluate_inner(self) -> dict:
+        """Internal evaluation — may raise, caught by evaluate()."""
+        candle_list = list(self._candles)
+        n = len(candle_list)
+
+        if n < 5:
+            return _safe_result(
+                production_l3_status="NOT_EVALUATED",
+                production_l3_block_reason="insufficient_candles",
+                interpretation=f"Warming up — {n}/5 candles collected",
+                candles_evaluated=n,
+            )
+
+        last = candle_list[-1]
+
         # Volume percentile of latest candle
-        vol_pct = self._volume_percentile(candle_list[-1].volume)
+        vol_pct = self._volume_percentile(last.volume)
 
         # Volatility percentile (range_bps rank in 60-candle window)
-        latest_range = candle_list[-1].range_bps
-        vol_rank = self._stats["range_bps"]["60"].rank(latest_range)
+        range_bundle = self._get_bundle(METRIC_RANGE)
+        vol_rank = range_bundle.rank(last.range_bps, "60")
 
         # Production L3 replay
         prod = self._prod_l3.evaluate(candle_list)
 
-        # Shadow variants
-        shadow_3c = _eval_shadow_3c(candle_list, self._flat_stats("3c_leg_bps"), vol_pct)
-        shadow_stress = _eval_shadow_stress(candle_list, self._flat_stats("3c_leg_bps"), vol_pct)
+        # Shadow variants — all use StatBundle (safe access)
+        shadow_3c = _eval_shadow_3c(candle_list, self._get_bundle(METRIC_LEG_3C), vol_pct)
+        shadow_stress = _eval_shadow_stress(candle_list, self._get_bundle(METRIC_LEG_3C), vol_pct)
         shadow_single = _eval_shadow_single_candle(
-            candle_list, self._flat_stats("body_bps"), self._flat_stats("range_bps")
+            candle_list, self._get_bundle(METRIC_BODY), self._get_bundle(METRIC_RANGE)
         )
-        shadow_5c = _eval_shadow_5c(candle_list, self._flat_stats("5c_leg_bps"))
+        shadow_5c = _eval_shadow_5c(candle_list, self._get_bundle(METRIC_LEG_5C))
 
         shadows = [shadow_3c, shadow_stress, shadow_single, shadow_5c]
 
-        # Check if any shadow passed
-        any_shadow_pass = any(s.passed for s in shadows)
-
         # Persist shadow events if any variant passed
-        if any_shadow_pass:
+        if any(s.passed for s in shadows):
             self._log_shadow_event(candle_list, prod, shadows)
 
         # Build interpretation
-        interpretation = self._build_interpretation(
-            candle_list, prod, shadows, vol_pct, vol_rank
+        interpretation = self._build_interpretation(candle_list, prod, shadows, vol_pct)
+
+        # Current metrics (safe field names)
+        leg3 = _leg_bps(candle_list, 3)
+        leg5 = _leg_bps(candle_list, 5)
+        eff3 = _directional_efficiency(candle_list, 3)
+        eff5 = _directional_efficiency(candle_list, 5)
+        pbr = _pullback_ratio(candle_list, 5)
+        max_ext = _max_extension_bps(candle_list, 5)
+        c2c = _close_to_close_bps(candle_list)
+
+        # Percentile ranks
+        body_bundle = self._get_bundle(METRIC_BODY)
+        leg3_bundle = self._get_bundle(METRIC_LEG_3C)
+        leg5_bundle = self._get_bundle(METRIC_LEG_5C)
+
+        result = _safe_result(
+            production_l3_status=prod.get("status", "NOT_EVALUATED"),
+            production_l3_block_reason=prod.get("reason", ""),
+            shadow_3c_pass=shadow_3c.passed,
+            shadow_stress_pass=shadow_stress.passed,
+            shadow_single_candle_pass=shadow_single.passed,
+            shadow_5c_pass=shadow_5c.passed,
+            metrics={
+                "body_bps": round(last.body_bps, 2),
+                "range_bps": round(last.range_bps, 2),
+                "close_to_close_bps": round(c2c, 2),
+                "leg_3c_bps": round(leg3, 2),
+                "leg_5c_bps": round(leg5, 2),
+                "directional_efficiency_3c": round(eff3, 3),
+                "directional_efficiency_5c": round(eff5, 3),
+                "pullback_ratio": round(pbr, 3),
+                "max_extension_bps": round(max_ext, 2),
+                "volume_percentile": round(vol_pct, 3),
+                "volatility_percentile": round(vol_rank, 3),
+            },
+            interpretation=interpretation,
+            ready=True,
+            candles_evaluated=n,
+            percentile_ranks={
+                "body_bps_rank_60": round(body_bundle.rank(last.body_bps, "60"), 3),
+                "range_bps_rank_60": round(range_bundle.rank(last.range_bps, "60"), 3),
+                "leg_3c_bps_rank_60": round(leg3_bundle.rank(leg3, "60"), 3),
+                "leg_5c_bps_rank_60": round(leg5_bundle.rank(leg5, "60"), 3),
+            },
+            percentile_thresholds={
+                metric: bundle.to_dict()
+                for metric, bundle in [
+                    (METRIC_BODY, body_bundle),
+                    (METRIC_RANGE, range_bundle),
+                    (METRIC_LEG_3C, leg3_bundle),
+                    (METRIC_LEG_5C, leg5_bundle),
+                ]
+            },
         )
 
-        # Persist latest snapshot
-        result = self._build_result(
-            candle_list, prod_status=prod["status"],
-            prod_reason=prod.get("reason", ""),
-            shadows=shadows, interpretation=interpretation,
-            vol_pct=vol_pct, vol_rank=vol_rank,
-        )
+        # Persist
         self._persist_snapshot(result)
 
         return result
-
-    def _flat_stats(self, metric: str) -> dict[str, PercentileStats]:
-        """Get stats dict keyed by window size string."""
-        return self._stats.get(metric, {
-            "60": PercentileStats(60),
-            "240": PercentileStats(240),
-            "720": PercentileStats(720),
-        })
 
     def _volume_percentile(self, vol: float) -> float:
         """Volume percentile vs recent candles."""
@@ -662,106 +792,14 @@ class L3LiveCalibrator:
         count_below = sum(1 for v in vols if v < vol)
         return count_below / len(vols)
 
-    def _build_result(self, candles: list[Candle1m],
-                      prod_status: str, prod_reason: str,
-                      shadows: list[ShadowVariant],
-                      interpretation: str,
-                      vol_pct: float = 0.0,
-                      vol_rank: float = 0.0) -> dict:
-        """Build the full diagnostic result."""
-        candle_list = list(self._candles)
-        last = candle_list[-1] if candle_list else None
-
-        # Current metrics
-        body_bps = last.body_bps if last else 0.0
-        range_bps = last.range_bps if last else 0.0
-        c2c_bps = _close_to_close_bps(candle_list)
-        leg3 = _leg_bps(candle_list, 3)
-        leg5 = _leg_bps(candle_list, 5)
-        eff3 = _directional_efficiency(candle_list, 3)
-        eff5 = _directional_efficiency(candle_list, 5)
-        pbr = _pullback_ratio(candle_list, 5)
-        max_ext = _max_extension_bps(candle_list, 5)
-
-        # Current percentile ranks
-        rank_body = self._stats["body_bps"]["60"].rank(body_bps)
-        rank_range = self._stats["range_bps"]["60"].rank(range_bps)
-        rank_leg3 = self._stats["3c_leg_bps"]["60"].rank(leg3)
-        rank_leg5 = self._stats["5c_leg_bps"]["60"].rank(leg5)
-
-        # Shadow results
-        shadow_map = {}
-        for s in shadows:
-            shadow_map[s.name] = {
-                "pass": s.passed,
-                "reason": s.reason,
-                **s.metrics,
-            }
-
-        return {
-            "timestamp": time.time(),
-            "candles_evaluated": len(candle_list),
-            "current_candle_time": last.time if last else None,
-
-            # Production L3 status
-            "production_l3_status": prod_status,
-            "production_l3_block_reason": prod_reason,
-
-            # Shadow variant results
-            "shadow_3c_pass": shadow_map.get("shadow_3c", {}).get("pass", False),
-            "shadow_stress_pass": shadow_map.get("shadow_stress", {}).get("pass", False),
-            "shadow_single_candle_pass": shadow_map.get("shadow_single_candle", {}).get("pass", False),
-            "shadow_5c_pass": shadow_map.get("shadow_5c", {}).get("pass", False),
-
-            # Shadow detail
-            "shadow_detail": shadow_map,
-
-            # Current metrics
-            "current": {
-                "body_bps": round(body_bps, 2),
-                "range_bps": round(range_bps, 2),
-                "close_to_close_bps": round(c2c_bps, 2),
-                "3c_leg_bps": round(leg3, 2),
-                "5c_leg_bps": round(leg5, 2),
-                "directional_efficiency_3c": round(eff3, 3),
-                "directional_efficiency_5c": round(eff5, 3),
-                "pullback_ratio": round(pbr, 3),
-                "max_extension_bps": round(max_ext, 2),
-                "volume_percentile": round(vol_pct, 3),
-                "volatility_percentile": round(vol_rank, 3),
-            },
-
-            # Percentile ranks (0-1)
-            "percentile_ranks": {
-                "body_bps_rank_60": round(rank_body, 3),
-                "range_bps_rank_60": round(rank_range, 3),
-                "3c_leg_bps_rank_60": round(rank_leg3, 3),
-                "5c_leg_bps_rank_60": round(rank_leg5, 3),
-            },
-
-            # Rolling percentile thresholds
-            "percentile_thresholds": {
-                metric: {
-                    win: self._stats[metric][win].to_dict()
-                    for win in self._stats[metric]
-                }
-                for metric in self._stats
-            },
-
-            # Interpretation
-            "interpretation": interpretation,
-        }
-
     def _build_interpretation(self, candles: list[Candle1m],
                               prod: dict, shadows: list[ShadowVariant],
-                              vol_pct: float, vol_rank: float) -> str:
+                              vol_pct: float) -> str:
         """Build human-readable interpretation of current state."""
         if not candles:
             return "No candle data available."
 
-        last = candles[-1]
         parts = []
-
         prod_pass = prod.get("pass", False)
         any_shadow = any(s.passed for s in shadows)
         shadow_pass_names = [s.name for s in shadows if s.passed]
@@ -780,11 +818,10 @@ class L3LiveCalibrator:
                 f"Production reason: {prod.get('reason', 'unknown')}. "
                 f"Shadow variants passing: {', '.join(shadow_pass_names)}."
             )
-            # Diagnose why production failed
-            body = last.body_bps
-            if prod.get("reason", "").startswith("body_bps"):
+            reason = prod.get("reason", "")
+            if reason.startswith("body_bps"):
                 parts.append("Production L3 too strict vs 1m percentile displacement.")
-            elif "15 bps" in prod.get("reason", ""):
+            elif "15 bps" in reason:
                 parts.append("Move below 15 bps hard floor but significant relative to recent history.")
             return " ".join(parts)
 
@@ -799,11 +836,10 @@ class L3LiveCalibrator:
         elif vol_pct < 0.5:
             parts.append("Volume below median; move lacks participation.")
         else:
-            # Check specific shadow failures
             for s in shadows:
                 if not s.passed:
                     parts.append(f"{s.name}: {s.reason}.")
-                    break  # just show first failure
+                    break
 
         return " ".join(parts) if parts else "No displacement conditions met."
 
@@ -814,11 +850,14 @@ class L3LiveCalibrator:
         event = {
             "timestamp": time.time(),
             "candle_count": len(candles),
-            "production_l3_status": prod["status"],
+            "production_l3_status": prod.get("status", "UNKNOWN"),
             "production_l3_reason": prod.get("reason", ""),
             "passing_variants": [s.name for s in shadows if s.passed],
             "current_metrics": candles[-1].to_dict() if candles else {},
-            "shadow_details": {s.name: {"pass": s.passed, "reason": s.reason, **s.metrics} for s in shadows},
+            "shadow_details": {
+                s.name: {"pass": s.passed, "reason": s.reason, **s.metrics}
+                for s in shadows
+            },
         }
         try:
             with open(self._shadow_events_path, "a") as f:
