@@ -6,6 +6,7 @@ import { DecisionBanner } from './DecisionBanner';
 import { InterpretationPanel } from './InterpretationPanel';
 import { WhyBlockedPanel } from './WhyBlockedPanel';
 import { ShortStressPanel } from './ShortStressPanel';
+import { L3DiagnosticPanel } from './L3DiagnosticPanel';
 import { T } from '../styles/operatorTheme';
 
 export const DecisionSidebar: React.FC = () => {
@@ -16,6 +17,7 @@ export const DecisionSidebar: React.FC = () => {
     <div style={S.sidebar}>
       <DecisionBanner />
       <InterpretationPanel />
+      <L3DiagnosticPanel />
       <ShortStressPanel />
       <WhyBlockedPanel />
 

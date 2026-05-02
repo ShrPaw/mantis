@@ -96,6 +96,16 @@ class EventManager:
         else:
             logger.info("SPE Module: DISABLED (SPE_ENABLED=false)")
 
+        # ── L3 Live Calibrator (shadow diagnostic, always-on) ──
+        self.l3_calibrator = None
+        try:
+            from .spe.l3_live_calibrator import L3LiveCalibrator
+            self.l3_calibrator = L3LiveCalibrator()
+            logger.info("L3 Live Calibrator: ENABLED (shadow diagnostic)")
+        except Exception as e:
+            logger.warning(f"L3 Live Calibrator: FAILED TO LOAD — {e}")
+            self.l3_calibrator = None
+
         logger.info(f"EventManager initialized with {len(self._detectors)} detectors")
         logger.info(f"Blacklist: {self.config.blacklist.event_types}")
         logger.info(f"Watchlist: {self.config.watchlist.event_types}")
@@ -187,6 +197,13 @@ class EventManager:
 
             except Exception as e:
                 logger.debug(f"SPE error (non-fatal): {e}")
+
+        # ── L3 Live Calibrator Hook (shadow diagnostic) ──
+        if self.l3_calibrator is not None:
+            try:
+                self.l3_calibrator.on_trade(price, qty, delta, timestamp)
+            except Exception as e:
+                logger.debug(f"L3 calibrator error (non-fatal): {e}")
 
         # Periodic cleanup
         if self._events_fired % 100 == 0:

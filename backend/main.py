@@ -461,6 +461,25 @@ async def spe_metrics():
         return {"status": "no_data"}
 
 
+@app.get("/l3/calibration")
+async def l3_calibration():
+    """
+    L3 1m displacement shadow diagnostic.
+    Returns production L3 status + 5 shadow variant evaluations.
+    Does NOT modify production SPE. Observation-only.
+    """
+    if event_mgr is None:
+        return {"status": "event_engine_disabled"}
+    if event_mgr.l3_calibrator is None:
+        return {"status": "l3_calibrator_not_loaded"}
+    try:
+        result = event_mgr.l3_calibrator.evaluate()
+        return result
+    except Exception as e:
+        logger.debug(f"L3 calibration error: {e}")
+        return {"status": "error", "detail": str(e)}
+
+
 @app.get("/operator/status")
 async def operator_status():
     """
