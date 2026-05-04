@@ -109,6 +109,19 @@ def on_trade(trade: dict):
     if bubble:
         asyncio.ensure_future(broadcast({"type": "large_trade", "data": bubble}))
 
+    # --- Instant price push (every trade, lightweight) ---
+    price = float(trade["px"])
+    ts = trade["time"]
+    asyncio.ensure_future(broadcast({
+        "type": "latest_price",
+        "data": {
+            "price": price,
+            "timestamp": ts,
+            "side": trade["side"],
+            "qty": float(trade["sz"]),
+        },
+    }))
+
     # --- Event Engine hook (additive, non-breaking) ---
     if event_mgr is not None:
         try:

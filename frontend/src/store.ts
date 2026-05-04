@@ -7,10 +7,22 @@ import type {
   SPEEvent, SPEStats,
 } from './types';
 
+export interface LivePrice {
+  price: number;
+  timestamp: number;
+  side: string;
+  qty: number;
+  lastUpdate: number; // browser timestamp of last update
+}
+
 interface DashboardState {
   // Connection
   connected: boolean;
   setConnected: (v: boolean) => void;
+
+  // Live price (ultra-fast, every trade)
+  livePrice: LivePrice;
+  setLivePrice: (p: LivePrice) => void;
 
   // Core data
   flow: FlowMetrics;
@@ -194,6 +206,9 @@ function computeMicro(
 export const useStore = create<DashboardState>((set, get) => ({
   connected: false,
   setConnected: (v) => set({ connected: v }),
+
+  livePrice: { price: 0, timestamp: 0, side: '', qty: 0, lastUpdate: 0 },
+  setLivePrice: (p) => set({ livePrice: p }),
 
   flow: defaultFlow,
   heatmap: { bids: [], asks: [], mid: 0 },

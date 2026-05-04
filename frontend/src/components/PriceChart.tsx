@@ -46,8 +46,12 @@ export function PriceChart() {
         timeVisible: true,
         secondsVisible: false,
       },
-      handleScroll: true,
-      handleScale: true,
+      handleScroll: { vertTouchDrag: false },
+      handleScale: {
+        axisPressedMouseMove: { price: false, time: true },
+        mouseWheel: true,
+        pinch: true,
+      },
     });
 
     // Candlestick series — high contrast

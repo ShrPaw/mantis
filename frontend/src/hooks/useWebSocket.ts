@@ -12,7 +12,7 @@ export function useWebSocket() {
   const pingInterval = useRef<ReturnType<typeof setInterval>>();
 
   const {
-    setConnected, setFlow, setHeatmap, setFootprints,
+    setConnected, setLivePrice, setFlow, setHeatmap, setFootprints,
     setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro,
     addEvents, setEventStats,
     addSPEEvents, setSPEStats,
@@ -83,6 +83,17 @@ export function useWebSocket() {
             setSPEStats(msg.data);
             break;
           }
+          case 'latest_price': {
+            const d = msg.data;
+            setLivePrice({
+              price: d.price,
+              timestamp: d.timestamp,
+              side: d.side,
+              qty: d.qty,
+              lastUpdate: Date.now(),
+            });
+            break;
+          }
           case 'pong':
             break;
         }
@@ -98,7 +109,7 @@ export function useWebSocket() {
     };
 
     ws.onerror = () => ws.close();
-  }, [setConnected, setFlow, setHeatmap, setFootprints, setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro, addEvents, setEventStats, addSPEEvents, setSPEStats]);
+  }, [setConnected, setLivePrice, setFlow, setHeatmap, setFootprints, setAbsorption, setCandles, addLargeTrade, addTradeTape, setInitData, updateMicro, addEvents, setEventStats, addSPEEvents, setSPEStats]);
 
   useEffect(() => {
     connect();

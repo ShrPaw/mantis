@@ -1,6 +1,6 @@
 // MANTIS Dashboard — Large Trade Bubble Tape
 import { useStore } from '../store';
-import { formatPrice, formatVol, formatUSD, timeAgo } from '../services/format';
+import { formatPrice, formatVol, formatUSD, formatTime, timeAgo } from '../services/format';
 
 export function BubbleTape() {
   const largeTrades = useStore(s => s.largeTrades);
@@ -56,8 +56,15 @@ function BubbleRow({ trade }: { trade: any }) {
   const size = Math.min(Math.max((trade.qty - 0.5) / 4.5, 0.25), 1);
   const bubbleSize = 14 + size * 26;
 
+  const tooltip = [
+    `${isBuy ? 'BUY' : 'SELL'} ${trade.qty?.toFixed(4)} BTC`,
+    `@ ${formatPrice(trade.price)}`,
+    `${formatUSD(trade.value_usd)}`,
+    `${formatTime(trade.timestamp)}`,
+  ].join(' | ');
+
   return (
-    <div style={styles.row}>
+    <div style={styles.row} title={tooltip}>
       <div style={{
         ...styles.bubble,
         width: bubbleSize,
