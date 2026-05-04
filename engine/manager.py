@@ -15,21 +15,21 @@ from pathlib import Path
 
 import yaml
 
-from .models import (
+from engine.models import (
     MarketState, ExecutionMode, EngineEvent,
     CrowdBuildupState, LiquidationCascadeState, UnwindState,
     ExhaustionAbsorptionState, Scores,
 )
-from .connectors.hyperliquid import HyperliquidConnector
-from .connectors.binance import BinanceConnector
-from .features import FeaturePipeline
-from .detectors import (
+from engine.connectors.hyperliquid import HyperliquidConnector
+from engine.connectors.binance import BinanceConnector
+from engine.features import FeaturePipeline
+from engine.detectors import (
     CrowdBuildupDetector, LiquidationCascadeDetector,
     UnwindDetector, ExhaustionAbsorptionDetector,
 )
-from .scoring import ScoringEngine
-from .alerts import AlertManager
-from .logger import EventLogger
+from engine.scoring import ScoringEngine
+from engine.alerts import AlertManager
+from engine.logger import EventLogger
 
 logger = logging.getLogger("mantis.engine")
 

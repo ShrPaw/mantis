@@ -17,7 +17,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
-from ..models import (
+from engine.models import (
     Trade, OrderBook, FundingRate, OpenInterest, Liquidation, Candle,
     FundingFeatures, OIFeatures, LiquidationFeatures, TradeFlowFeatures,
     OrderBookFeatures, ExecutionQualityFeatures,

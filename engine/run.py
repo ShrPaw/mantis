@@ -13,7 +13,7 @@ import logging
 import signal
 import sys
 
-from .manager import MantisEngine
+from engine.manager import MantisEngine
 
 
 def setup_logging(level: str = "INFO"):

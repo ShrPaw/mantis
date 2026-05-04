@@ -14,8 +14,8 @@ from typing import Optional
 
 import websockets
 
-from . import BaseConnector
-from ..models import (
+from engine.connectors import BaseConnector
+from engine.models import (
     Trade, OrderBook, BookLevel, Candle, FundingRate, OpenInterest,
 )
 

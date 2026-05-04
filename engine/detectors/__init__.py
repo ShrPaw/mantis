@@ -10,7 +10,7 @@ import logging
 import time
 from collections import deque
 
-from ..models import (
+from engine.models import (
     CrowdBuildupState, LiquidationCascadeState, UnwindState,
     ExhaustionAbsorptionState, FundingFeatures, OIFeatures,
     LiquidationFeatures, TradeFlowFeatures, OrderBookFeatures,

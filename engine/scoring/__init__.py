@@ -15,7 +15,7 @@ import logging
 import math
 from collections import deque
 
-from ..models import (
+from engine.models import (
     Scores, FundingFeatures, OIFeatures, LiquidationFeatures,
     TradeFlowFeatures, OrderBookFeatures, ExecutionQualityFeatures,
 )

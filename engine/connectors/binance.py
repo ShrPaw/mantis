@@ -15,8 +15,8 @@ from typing import Optional
 import websockets
 import httpx
 
-from . import BaseConnector
-from ..models import FundingRate, OpenInterest, Liquidation
+from engine.connectors import BaseConnector
+from engine.models import FundingRate, OpenInterest, Liquidation
 
 logger = logging.getLogger("mantis.connector.binance")
 
